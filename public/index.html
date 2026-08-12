@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Game · 叙事播放原型</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="game-header">
+        <p id="scene-label">正在读取场景</p>
+        <div class="header-actions"><button id="history-button" type="button">记录与设置</button><span id="connection-status" role="status">正在连接</span></div>
+      </header>
+
+      <section class="stage" aria-label="叙事舞台">
+        <div class="stage-placeholder" aria-hidden="true"><span>SCENE PLACEHOLDER</span></div>
+        <div class="presence" aria-live="polite"><span>在场</span><span id="presence-list">—</span></div>
+      </section>
+
+      <section class="text-dock" aria-label="叙事文本">
+        <button id="advance-button" class="narrative-output" type="button" aria-describedby="advance-hint">
+          <span id="block-kind" class="block-kind">准备中</span>
+          <span id="speaker-name" class="speaker-name" hidden></span>
+          <span id="narrative-text" class="narrative-text">正在建立与世界的连接。</span>
+        </button>
+        <p id="advance-hint" class="hint">播放时点击可补全文字；完整显示后点击进入下一段。</p>
+      </section>
+
+      <form id="action-form" class="action-dock" hidden>
+        <label for="action-input">你想说什么，或做什么？</label>
+        <div class="action-row">
+          <textarea id="action-input" name="content" rows="3" maxlength="1000" placeholder="输入行动……" required></textarea>
+          <button id="send-action" type="submit">提交行动</button>
+        </div>
+        <p id="action-feedback" class="hint">输入将先交由世界规则确认。</p>
+      </form>
+    </main>
+    <dialog id="history-dialog" class="history-dialog" aria-labelledby="history-title">
+      <header class="dialog-header"><h2 id="history-title">文本回看</h2><button id="close-history" type="button">关闭</button></header>
+      <ol id="history-list" class="history-list"><li>尚未播放任何可回看的文本。</li></ol>
+      <section class="settings" aria-labelledby="settings-title">
+        <h3 id="settings-title">播放设置</h3>
+        <label>文字速度<select id="text-speed"><option value="40">慢</option><option value="24">标准</option><option value="10">快</option></select></label>
+        <label><input id="auto-play" type="checkbox" /> 自动播放</label>
+        <label>自动等待<select id="auto-delay"><option value="600">短</option><option value="1000">标准</option><option value="1600">长</option></select></label>
+        <label><input id="show-system" type="checkbox" checked /> 显示普通系统提示</label>
+      </section>
+    </dialog>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
