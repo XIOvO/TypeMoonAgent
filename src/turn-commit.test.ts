@@ -23,6 +23,25 @@ test("TurnCommit durably writes a whole event batch with its character evidence"
   assert.equal(repository.listEvidence("demo", "mash", 5).length, 2);
   assert.equal(repository.listEvidence("demo", "player", 5).length, 1);
   assert.equal(repository.loadWorldState("demo")?.revision, 2);
+  assert.deepEqual(repository.getBond("demo", "player", "mash"), undefined);
+  repository.close();
+});
+
+test("a completed player-character dialogue grants one durable bond point once", () => {
+  const repository = new SqliteCifRepository();
+  const playerSpeech: GameEvent = { id: "event-player", sessionId: "demo", sequence: 1, createdAt: "2026-08-11T10:00:00Z",
+    type: "player_spoke", payload: { characterId: "player", targetId: "mash", text: "Hello." }, causation: { playerActionId: "action-2" }, stateRevision: 1 };
+  const reply: GameEvent = { id: "event-mash", sessionId: "demo", sequence: 2, createdAt: "2026-08-11T10:00:01Z",
+    type: "character_spoke", payload: { characterId: "mash", text: "Hello, Senpai." }, causation: { playerActionId: "action-2" }, stateRevision: 2 };
+  const committer = new SqliteTurnCommitter(repository);
+  const turn = { actionId: "action-2", sessionId: "demo", stateRevision: 2, events: [playerSpeech, reply],
+    worldState: { sessionId: "demo", revision: 2, characters: {}, locations: {} }, recipientsByEventId: new Map<string, string[]>() };
+  committer.commit(turn);
+  repository.transaction(() => repository.grantBond({ actionId: "action-2", sessionId: "demo", playerId: "player", characterId: "mash",
+    points: 1, sourceEventIds: ["event-player", "event-mash"], createdAt: "2026-08-11T10:00:00Z" }));
+  assert.deepEqual(repository.getBond("demo", "player", "mash"), {
+    sessionId: "demo", playerId: "player", characterId: "mash", level: 1, points: 1, totalPoints: 1, updatedAt: "2026-08-11T10:00:00Z",
+  });
   repository.close();
 });
 

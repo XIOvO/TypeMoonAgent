@@ -3,44 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>玛修 · 表情图谱实验室</title>
+    <title>玛修 · Atlas 表情实验</title>
     <link rel="stylesheet" href="/expression-lab.css" />
   </head>
   <body>
     <main class="lab-shell">
       <header class="lab-header">
         <a class="back-link" href="/">返回观测终端</a>
-        <p class="kicker">CHARACTER ASSET STUDY · 98001000</p>
-        <h1>玛修的表情，不交给 AI 猜。</h1>
-        <p class="intro">从图集中挑选一个实际存在的表情，为它附上稳定名称。游戏运行时只查本地表，不增加任何模型调用。</p>
+        <p class="kicker">MASH KYRIELIGHT · 98001000</p>
+        <h1>全身立绘，按真实定位切换表情。</h1>
+        <p class="intro">图集只加载一次。每次切换会用 Atlas 的 svtScript 坐标清除原脸，再叠加下方图集中的对应表情。</p>
       </header>
 
-      <section class="stage" aria-label="表情预览">
+      <section class="stage" aria-label="玛修全身立绘表情预览">
         <div class="stage-copy">
           <p class="kicker">CURRENT EXPRESSION</p>
-          <h2 id="expression-name">默认</h2>
-          <p id="expression-description">沉静、正常的待机表情。</p>
-          <div class="expression-code"><span>mash</span><code id="expression-key">neutral</code></div>
+          <h2 id="expression-name">加载中</h2>
+          <p id="expression-description">正在读取图集和定位数据。</p>
+          <div class="expression-code"><span>mash</span><code id="expression-key">loading</code></div>
+          <dl class="coordinate-readout">
+            <div><dt>脸部锚点</dt><dd>384 × 149</dd></div>
+            <div><dt>画布偏移</dt><dd>0 × 125</dd></div>
+            <div><dt>表情规格</dt><dd>256 × 256</dd></div>
+          </dl>
         </div>
         <div class="portrait-frame">
-          <canvas id="portrait" width="512" height="480" aria-label="当前选中的玛修表情"></canvas>
-          <span class="frame-caption">LIVE PREVIEW</span>
+          <canvas id="portrait" width="1024" height="768" aria-label="当前选中的玛修全身立绘"></canvas>
+          <span class="frame-caption">SVT SCRIPT COMPOSITE</span>
         </div>
       </section>
 
       <section class="catalogue" aria-labelledby="catalogue-title">
         <div class="catalogue-heading">
-          <div><p class="kicker">EXPRESSION ATLAS</p><h2 id="catalogue-title">从图集选表情</h2></div>
-          <p><strong id="tagged-count">0</strong> / 28 已标注</p>
+          <div><p class="kicker">EXPRESSION ATLAS</p><h2 id="catalogue-title">选择一个表情格</h2></div>
+          <p><strong id="expression-count">0</strong> 个可用状态</p>
         </div>
         <div id="expression-grid" class="expression-grid"></div>
       </section>
     </main>
     <template id="expression-card-template">
-      <article class="expression-card">
-        <button class="expression-preview" type="button"><canvas width="256" height="240"></canvas><span class="cell-index"></span></button>
-        <label>表情标签<select class="expression-select"></select></label>
-      </article>
+      <button class="expression-preview" type="button"><canvas width="160" height="160"></canvas><span class="expression-label"></span></button>
     </template>
     <script type="module" src="/expression-lab.js"></script>
   </body>

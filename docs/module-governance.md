@@ -12,6 +12,7 @@
 | `story` | 剧情触发、角色可用性和推荐 | `core`、`cif`、`story` |
 | `narrative` | 已确认事件到可播放叙事块的转换 | `core`、`narrative` |
 | `persistence` | 事务提交、仓储实现、迁移 | `core`、`cif`、`persistence` |
+| `jobs`（未来） | 持久化 Job / Outbox、租约、重试与幂等消费端口 | `core`、`persistence`、`jobs` |
 | `agents` | Pi 等外部模型适配器；只能提议，不能裁定世界事实 | `core`、`cif`、`agents` |
 | `api` | HTTP、SSE、玩家可见投影和静态资源服务 | `core`、`cif`、`narrative`、`api` |
 | `app` | 组合根：启动、依赖装配、演示世界 | 所有业务模块 |
@@ -25,6 +26,7 @@
 3. 一个功能的类型、实现和测试应放在同一模块中；测试文件使用 `*.test.ts` 并紧邻实现文件。
 4. 只有 `app` 可以装配具体实现。其他模块不得反向导入 `api`、`app` 或 `agents`。
 5. 新增一级模块前，先在本表登记职责、状态所有权、允许依赖和最小测试命令；不要创建空目录占位。
+6. 可选能力必须在 `app` 的组合根登记其 `requires`、`provides`、`start`、`stop` 与消费的 Job 类型；能力不能通过监听器或 Worker 绕过 Runtime 写入客观世界状态。
 
 ## 自动检查
 

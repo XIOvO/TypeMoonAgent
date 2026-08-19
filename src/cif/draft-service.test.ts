@@ -3,6 +3,7 @@ import test from "node:test";
 import type { CifDraftGenerator, CifInitializationBrief, CifInitializationDraft } from "./initializer.js";
 import { CifDraftService } from "./draft-service.js";
 import { SqliteCifRepository } from "./sqlite-repository.js";
+import { CifInitializationPublisher } from "./publisher.js";
 
 const brief: CifInitializationBrief = {
   request: {
@@ -22,6 +23,8 @@ class StubGenerator implements CifDraftGenerator {
 const validDraft = (): CifInitializationDraft => ({
   characterId: "mash", variantId: "fgo-early", storyPointId: "fuyuki:start",
   identity: [{ section: "values", content: "Protect the Master.", sourceChunkIds: ["chunk-1"], confidence: "medium" }],
+  profile: { socialIdentity: "Demi-Servant", sourceChunkIds: ["chunk-1"] }, capabilities: [],
+  lifeContext: { responsibilities: [], currentProblems: [], availableResources: [], missingResources: [], sourceChunkIds: ["chunk-1"] }, objectiveRelationships: [],
   initialKnowledge: [], initialRelationships: [], initialRuntimeState: { mood: "alert", activeGoals: ["protect player"] }, reviewFlags: [],
 });
 
@@ -45,5 +48,16 @@ test("CIF draft service marks unsupported claims invalid instead of publishing",
   assert.equal(record.status, "invalid");
   assert.deepEqual(record.validationErrors, ["claim_references_unknown_source"]);
   assert.equal(repository.listIdentity("demo", "mash").length, 0);
+  repository.close();
+});
+
+test("CIF draft service auto-publishes a complete minimum baseline", async () => {
+  const repository = new SqliteCifRepository();
+  const draft = validDraft();
+  draft.identity.unshift({ section: "character_brief", content: "A protector.", sourceChunkIds: ["chunk-1"], confidence: "high" });
+  draft.capabilities.push({ category: "limitation", content: "Mission restriction.", mechanicalTags: [], sourceChunkIds: ["chunk-1"] });
+  const record = await new CifDraftService(repository, new StubGenerator(draft), "test-generator", new CifInitializationPublisher(repository)).create(brief);
+  assert.equal(record.status, "published");
+  assert.equal(repository.getProfile("demo", "mash")?.socialIdentity, "Demi-Servant");
   repository.close();
 });

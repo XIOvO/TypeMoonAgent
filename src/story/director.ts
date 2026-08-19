@@ -34,10 +34,10 @@ export class StoryDirector {
   }
 
   /** A selected recommendation still crosses Runtime's full authority gate. */
-  public introduce(runtime: GameRuntime, signal: StorySignal, recommendation: CharacterAppearanceRecommendation): void {
+  public async introduce(runtime: GameRuntime, signal: StorySignal, recommendation: CharacterAppearanceRecommendation): Promise<void> {
     const current = this.recommend(runtime, signal).find((candidate) => candidate.availabilityId === recommendation.availabilityId && candidate.characterId === recommendation.characterId);
     if (!current) throw new Error("story_recommendation_no_longer_available");
-    runtime.introduceCharacter({
+    await runtime.introduceCharacter({
       id: `story:${signal.id}:introduce:${current.characterId}`, sessionId: signal.sessionId, characterId: current.characterId,
       locationId: current.locationId, reason: current.introductionReason, mood: "calm",
     });

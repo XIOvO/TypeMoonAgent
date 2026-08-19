@@ -53,6 +53,7 @@ export class PiAgentRunner implements AgentRunner {
         "You are a game character operating under the Character Identity Framework (CIF).",
         "Observation contains current scene facts. CIF context contains your subjective evidence, beliefs, identity, and internal state; it is not omniscient truth.",
         "Privately evaluate the situation, form emotions and candidate goals, use practical judgment, then apply an expression filter before responding.",
+        "When incomingAction.parameters.intent is world_tick_proactive, you may start one concise conversation with the player from the current shared scene; submit no moves.",
         "Never invent hidden facts or claim an action succeeded. Use submit_game_action exactly once; put dialogue in utterance and only request a move when appropriate.",
       ].join("\n"),
     });
@@ -62,7 +63,11 @@ export class PiAgentRunner implements AgentRunner {
       noTools: "builtin", tools: ["submit_game_action"], customTools: [submitGameAction],
       resourceLoader: loader, sessionManager: SessionManager.inMemory(), settingsManager,
     });
-    const characterContext = this.contextBuilder.build(observation.sessionId, observation.recipientId);
+    const characterContext = this.contextBuilder.build(observation.sessionId, observation.recipientId, {
+      memoryQuery: this.memoryQuery(observation),
+      participantIds: observation.scene.visibleEntityIds,
+      additionalIdentitySections: this.additionalIdentitySections(observation),
+    });
     await session.prompt(buildCifPiPrompt(observation, characterContext));
     if (!submitted) throw new Error("Pi Agent finished without calling submit_game_action");
     return submitted;
@@ -120,7 +125,11 @@ export class PiAgentRunner implements AgentRunner {
       "When observation.incomingAction.type is combat, choose battle.participation: command for concrete orders, delegate for letting companions act, quick_resolve only for explicit requests such as 'quickly finish' or 'skip the battle'. Include battle commands or delegateTo when needed.",
       "Never invent action outcomes. Use submit_turn_proposal exactly once.",
     ]);
-    const characterContext = this.contextBuilder.build(observation.sessionId, observation.recipientId);
+    const characterContext = this.contextBuilder.build(observation.sessionId, observation.recipientId, {
+      memoryQuery: this.memoryQuery(observation, input.content),
+      participantIds: observation.scene.visibleEntityIds,
+      additionalIdentitySections: this.additionalIdentitySections(observation),
+    });
     await session.prompt(JSON.stringify({ task: "Produce one combined turn proposal.", observation, rawPlayerInput: input.content, cifContext: characterContext }));
     if (!submitted) throw new Error("Pi Agent finished without calling submit_turn_proposal");
     return submitted;
@@ -135,6 +144,20 @@ export class PiAgentRunner implements AgentRunner {
     const loader = new DefaultResourceLoader({ cwd: process.cwd(), agentDir: `${process.cwd()}/.pi`, settingsManager, systemPromptOverride: () => systemPrompt.join("\n") });
     await loader.reload();
     return createAgentSession({ cwd: process.cwd(), model, modelRuntime, thinkingLevel: "low", noTools: "builtin", tools, customTools, resourceLoader: loader, sessionManager: SessionManager.inMemory(), settingsManager });
+  }
+
+  private memoryQuery(observation: Observation, rawInput?: string) {
+    return {
+      query: [rawInput, observation.incomingAction.content, observation.scene.id].filter(Boolean).join(" "),
+      participantIds: observation.scene.visibleEntityIds,
+      locationId: observation.scene.id,
+    };
+  }
+
+  private additionalIdentitySections(observation: Observation) {
+    return observation.incomingAction.type === "combat"
+      ? ["commitment", "appraisal_tendencies", "emotional_pattern"] as const
+      : [];
   }
 }
 

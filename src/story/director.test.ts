@@ -10,7 +10,7 @@ const world = () => ({
   locations: { chaldea_hall: { id: "chaldea_hall", exits: [] } },
 });
 
-test("Chaldea opening recommends published Mash and Runtime introduces the selected candidate once", () => {
+test("Chaldea opening recommends published Mash and Runtime introduces the selected candidate once", async () => {
   const authorizer = { hasPublishedInitialization: (_sessionId: string, id: string) => id === "mash" };
   const runtime = new GameRuntime(world(), {}, undefined, authorizer);
   const director = new StoryDirector(chaldeaOpeningAvailability, authorizer);
@@ -18,7 +18,7 @@ test("Chaldea opening recommends published Mash and Runtime introduces the selec
   const [recommendation] = director.recommend(runtime, signal);
   assert.equal(recommendation?.characterId, "mash");
   assert.equal(recommendation?.score, 1);
-  director.introduce(runtime, signal, recommendation!);
+  await director.introduce(runtime, signal, recommendation!);
   assert.equal(runtime.getState().characters.mash?.locationId, "chaldea_hall");
   assert.deepEqual(director.recommend(runtime, signal), []);
   assert.equal(runtime.getEvents().filter((event) => event.type === "character_introduced").length, 1);

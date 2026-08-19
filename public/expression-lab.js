@@ -1,68 +1,115 @@
-const sheet = new Image();
-sheet.src = "/assets/mash-expression-sheet.png";
-
-const sheetLayout = { columns: 4, rows: 7, startY: 784, cellWidth: 256, cellHeight: 240, rowGap: 12 };
-const labels = [
-  ["未标注", ""], ["默认", "neutral"], ["说话", "speak"], ["强调说话", "emphasized_speak"],
-  ["惊讶", "surprised"], ["担忧", "concerned"], ["难过", "sad"], ["含泪", "tearful"],
-  ["严肃", "stern"], ["生气", "angry"], ["受伤", "hurt"], ["不安", "uneasy"],
-  ["微笑", "smile"], ["闭眼微笑", "eyes_closed_smile"], ["害羞", "blush"], ["沉思", "thinking"],
-];
-const descriptions = {
-  neutral: "沉静、正常的待机表情。", speak: "自然开口，适合一般对白。", emphasized_speak: "语气更强的发言或呼唤。", surprised: "短促的惊讶与错愕。", concerned: "克制的担忧，适合提醒与确认。", sad: "低落、难以言明的失落。", tearful: "情绪外显；只用于确有触发的时刻。", stern: "警戒、决断或认真说明。", angry: "明确的愤怒与反驳。", hurt: "受伤、疲惫或压抑痛感。", uneasy: "不安、犹疑或难以判断。", smile: "放松的轻笑。", eyes_closed_smile: "更完整的安心与喜悦。", blush: "害羞或被戳破心思。", thinking: "沉默思考、暂未作答。"
-};
-const seedLabels = ["speak", "emphasized_speak", "neutral", "stern", "surprised", "concerned", "thinking", "eyes_closed_smile", "tearful", "hurt", "sad", "uneasy", "neutral", "speak", "concerned", "smile", "neutral", "sad", "smile", "stern", "surprised", "eyes_closed_smile", "eyes_closed_smile", "angry", "concerned", "smile", "eyes_closed_smile", "uneasy"];
-const selections = [...seedLabels];
-const grid = document.querySelector("#expression-grid");
+const portrait = document.querySelector("#portrait");
+const context = portrait.getContext("2d");
+const expressionGrid = document.querySelector("#expression-grid");
 const template = document.querySelector("#expression-card-template");
-const mainCanvas = document.querySelector("#portrait");
-const mainContext = mainCanvas.getContext("2d");
-let selectedIndex = 0;
 
-sheet.addEventListener("load", () => {
-  Array.from({ length: 28 }, (_, index) => createCard(index));
-  selectExpression(0);
-  updateCount();
+const atlasCanvas = { width: 1024, bodyHeight: 768, defaultFaceSize: 256 };
+const expressionNames = ["默认", ...Array.from({ length: 28 }, (_, index) => `表情 ${String(index + 1).padStart(2, "0")}`)];
+
+let sheet;
+let script;
+let selectedFace = 0;
+
+Promise.all([
+  loadImage("/assets/mash-expression-sheet.png"),
+  fetch("/assets/atlas/98001000.svtScript.json").then((response) => {
+    if (!response.ok) throw new Error("无法读取玛修的定位数据");
+    return response.json();
+  }),
+]).then(([image, metadata]) => {
+  sheet = image;
+  script = metadata;
+  renderExpressionPicker();
+  selectFace(0);
+}).catch((error) => {
+  document.querySelector("#expression-description").textContent = error.message;
 });
 
-function cropFor(index) {
-  const column = index % sheetLayout.columns;
-  const row = Math.floor(index / sheetLayout.columns);
-  return { x: column * sheetLayout.cellWidth, y: sheetLayout.startY + row * (sheetLayout.cellHeight + sheetLayout.rowGap), width: sheetLayout.cellWidth, height: sheetLayout.cellHeight };
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("无法读取玛修图集"));
+    image.src = src;
+  });
 }
 
-function drawExpression(context, index, width, height) {
-  const crop = cropFor(index);
-  context.clearRect(0, 0, width, height);
-  context.drawImage(sheet, crop.x, crop.y, crop.width, crop.height, 0, 0, width, height);
+function faceSize() {
+  const value = script.extendData?.faceSize;
+  return Number.isFinite(value) ? value : atlasCanvas.defaultFaceSize;
 }
 
-function createCard(index) {
-  const fragment = template.content.cloneNode(true);
-  const preview = fragment.querySelector(".expression-preview");
-  const canvas = fragment.querySelector("canvas");
-  const select = fragment.querySelector("select");
-  fragment.querySelector(".cell-index").textContent = `#${String(index + 1).padStart(2, "0")}`;
-  labels.forEach(([name, value]) => select.add(new Option(name, value, false, selections[index] === value)));
-  drawExpression(canvas.getContext("2d"), index, canvas.width, canvas.height);
-  preview.addEventListener("click", () => selectExpression(index));
-  select.addEventListener("change", () => { selections[index] = select.value; updateCount(); if (selectedIndex === index) updateStage(index); });
-  grid.append(fragment);
+function faceCount() {
+  const size = faceSize();
+  return Math.floor((sheet.height - atlasCanvas.bodyHeight) / size) * Math.floor(atlasCanvas.width / size);
 }
 
-function selectExpression(index) {
-  selectedIndex = index;
-  document.querySelectorAll(".expression-preview").forEach((node, current) => node.classList.toggle("is-selected", current === index));
-  updateStage(index);
+function faceSource(index) {
+  const size = faceSize();
+  const columns = Math.floor(atlasCanvas.width / size);
+  return {
+    x: (index % columns) * size,
+    y: atlasCanvas.bodyHeight + Math.floor(index / columns) * size,
+    width: size,
+    height: size,
+  };
 }
 
-function updateStage(index) {
-  drawExpression(mainContext, index, mainCanvas.width, mainCanvas.height);
-  const key = selections[index] || "unlabeled";
-  const name = labels.find(([, value]) => value === key)?.[0] ?? "未标注";
-  document.querySelector("#expression-name").textContent = name;
-  document.querySelector("#expression-key").textContent = key || "unlabeled";
-  document.querySelector("#expression-description").textContent = descriptions[key] ?? "尚未决定这一格的用途；选择标签后即可纳入角色图谱。";
+function targetFaceRect() {
+  const size = faceSize();
+  return {
+    x: script.faceX - script.offsetX,
+    y: script.faceY - script.offsetY,
+    width: size,
+    height: size,
+  };
 }
 
-function updateCount() { document.querySelector("#tagged-count").textContent = String(selections.filter(Boolean).length); }
+function renderPortrait(index) {
+  context.clearRect(0, 0, portrait.width, portrait.height);
+  context.drawImage(
+    sheet,
+    0, 0, atlasCanvas.width, atlasCanvas.bodyHeight,
+    -script.offsetX, -script.offsetY, atlasCanvas.width, atlasCanvas.bodyHeight,
+  );
+  if (index === 0) return;
+
+  const source = faceSource(index - 1);
+  const target = targetFaceRect();
+  // 保留边缘两像素，避免清除抗锯齿过渡层产生接缝。
+  context.clearRect(target.x + 2, target.y + 2, target.width - 4, target.height - 4);
+  context.drawImage(sheet, source.x, source.y, source.width, source.height, target.x, target.y, target.width, target.height);
+}
+
+function renderExpressionPicker() {
+  const count = faceCount();
+  document.querySelector("#expression-count").textContent = String(count + 1);
+  for (let index = 0; index <= count; index += 1) {
+    const fragment = template.content.cloneNode(true);
+    const button = fragment.querySelector("button");
+    const canvas = fragment.querySelector("canvas");
+    const label = fragment.querySelector(".expression-label");
+    label.textContent = expressionNames[index] ?? `表情 ${index}`;
+    if (index === 0) {
+      canvas.getContext("2d").drawImage(sheet, 0, 0, atlasCanvas.width, atlasCanvas.bodyHeight, 0, 0, canvas.width, canvas.height);
+    } else {
+      const source = faceSource(index - 1);
+      canvas.getContext("2d").drawImage(sheet, source.x, source.y, source.width, source.height, 0, 0, canvas.width, canvas.height);
+    }
+    button.addEventListener("click", () => selectFace(index));
+    expressionGrid.append(fragment);
+  }
+}
+
+function selectFace(index) {
+  selectedFace = index;
+  renderPortrait(index);
+  document.querySelector("#expression-name").textContent = expressionNames[index] ?? `表情 ${index}`;
+  document.querySelector("#expression-key").textContent = index === 0 ? "base portrait" : `face ${String(index).padStart(2, "0")}`;
+  document.querySelector("#expression-description").textContent = index === 0
+    ? "原始全身立绘，不叠加表情格。"
+    : "使用 Atlas svtScript 的 faceX、faceY 与 offset 坐标贴合到原脸位置。";
+  document.querySelectorAll(".expression-preview").forEach((button, buttonIndex) => {
+    button.classList.toggle("is-selected", buttonIndex === selectedFace);
+  });
+}

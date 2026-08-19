@@ -9,6 +9,8 @@ agent game/
 │  ├─ cif/             # CIF v0.2：角色上下文、初始化材料、提示词、反馈、SQLite CIF 仓储
 │  ├─ lore/            # 原作资料：Atlas 导入、Script 切片、SQLite FTS 检索
 │  ├─ persistence/     # 持久化提交边界与未来 migrations / repository ports
+│  ├─ platform/        # 插件协议、组合启动与 Cordis 平台适配
+│  ├─ plugins/         # system.* 与 future feature.* 插件实现
 │  ├─ api/             # HTTP、SSE、玩家可见状态投影
 │  └─ index.ts         # 可被其他程序导入的公共出口
 ├─ public/             # 纯前端静态资源，不直接访问数据库
@@ -28,6 +30,7 @@ app ──► api ──► core
 app ──► agents ──► core / cif
 app ──► persistence ──► cif
 cif ──► core（只读取 GameEvent / Observation 类型）
+app ──► platform / plugins ──► core
 ```
 
 `core` 不依赖 Pi、HTTP、前端、Atlas 或 SQLite 的具体实现；这是后续替换模型、增加 Resolver 或测试规则的基础。
@@ -38,6 +41,8 @@ cif ──► core（只读取 GameEvent / Observation 类型）
 | --- | --- | --- |
 | 自由行动结算 | `src/action/` | `ActionResolver`、对象能力、检定与可见结果 |
 | 战斗 | `src/combat/` | 战斗状态机、资源、时序、确定性事件 |
+| 地图与导航 | `src/map/` | 静态拓扑、动态通行条件、路线与空间查询；不直接结算移动 |
+| 系统/功能插件 | `src/plugins/` | 基于 capability 的可装配能力，不保存绕过 Runtime 的写权 |
 | 章节推进 | `src/story/` | 当前确定性 Story Trigger；未来 `CanonBeat`、`WorldBranch`、世界压力推进 |
 | 原作资料库 | `src/lore/` | 文档/切片仓储、FTS、来源引用、权限过滤 |
 | 叙事表现 | `src/narrative/` | `NarrativePreset`、模板 Renderer、可选模型 Renderer |

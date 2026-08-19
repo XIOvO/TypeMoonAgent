@@ -10,9 +10,14 @@
     "start": "npm.cmd run build && node dist/app/main.js",
     "test": "npm.cmd run build && node --test dist/**/*.test.js",
     "import:atlas:fuyuki": "node scripts/download-atlas-fuyuki.mjs",
-    "index:atlas:fuyuki": "npm.cmd run build && node scripts/index-atlas-fuyuki.mjs"
+    "index:atlas:fuyuki": "npm.cmd run build && node scripts/index-atlas-fuyuki.mjs",
+    "import:atlas:canon": "node scripts/download-atlas-canon.mjs",
+    "index:atlas:canon": "npm.cmd run build && node scripts/index-atlas-canon.mjs",
+    "import:atlas:servants": "node scripts/download-atlas-servants.mjs",
+    "index:atlas:servants": "npm.cmd run build && node scripts/index-atlas-servants.mjs"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
     "@earendil-works/pi-ai": "0.84.1",
     "@earendil-works/pi-coding-agent": "0.84.1",
     "typebox": "1.3.12"

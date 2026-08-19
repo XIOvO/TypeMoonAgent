@@ -2,6 +2,10 @@
 
 ## 通用规则
 
+### 最高权威规则
+
+本项目遵循“程序优先、AI 提案、Runtime 裁定”：AI 的角色行动、GM 场景、记忆整合和关系更新均为待校验提案；只有 Runtime 可以确认世界事实、推进游戏时间、修改 WorldState 并写入有效 `GameEvent`。AI 不可用可以暂停叙事，但不得损坏已经提交的世界与存档状态。
+
 - 所有消息必须包含 `schema_version`、`id`、`session_id`、`created_at`（ISO 8601 UTC）。
 - ID 使用 UUID 或可追溯的唯一 ID；不得以显示文本作为 ID。
 - 枚举字段使用稳定 machine value（如 `dialogue`），显示文案由前端映射。

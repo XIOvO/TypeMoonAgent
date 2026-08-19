@@ -19,7 +19,7 @@
   → 来源和剧透边界过滤
   → CIF Initializer（Pi / 专用初始化模型）
   → 可验证的 CharacterProfileDraft
-  → 自动规则检查 + 可选人工审核
+  → 自动规则检查 + 独立 AI 审核或隔离
   → 写入 Character Profile / State / Knowledge / Relationship
   → character_introduced GameEvent
 ```

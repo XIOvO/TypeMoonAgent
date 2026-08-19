@@ -14,7 +14,14 @@ const approved = (): CifInitializationDraftRecord => ({
   },
   draft: {
     characterId: "mash", variantId: "fgo-early", storyPointId: "fuyuki:start",
-    identity: [{ section: "values", content: "Protect the Master.", sourceChunkIds: ["chunk-1"], confidence: "high" }],
+    identity: [
+      { section: "character_brief", content: "A guarded young demi-servant protecting the player.", sourceChunkIds: ["chunk-1"], confidence: "high" },
+      { section: "values", content: "Protect the Master.", sourceChunkIds: ["chunk-1"], confidence: "high" },
+    ],
+    profile: { socialIdentity: "Demi-Servant", sourceChunkIds: ["chunk-1"] },
+    capabilities: [{ category: "limitation", content: "Mission restrictions.", mechanicalTags: ["restricted"], sourceChunkIds: ["chunk-1"] }],
+    lifeContext: { responsibilities: ["protect player"], currentProblems: [], availableResources: [], missingResources: [], sourceChunkIds: ["chunk-1"] },
+    objectiveRelationships: [{ targetId: "player", relationType: "mission_partner", sourceChunkIds: ["chunk-1"] }],
     initialKnowledge: [{ proposition: "The player is present.", sourceChunkIds: ["chunk-1"], confidence: "medium" }],
     initialRelationships: [{ targetId: "player", summary: "A person to protect.", sourceChunkIds: ["chunk-1"], confidence: "medium" }],
     initialRuntimeState: { mood: "alert", activeGoals: ["protect player"] }, reviewFlags: [],
@@ -26,9 +33,17 @@ test("publisher only turns an approved, validated draft into live CIF state", ()
   const record = approved();
   repository.saveInitializationDraft(record);
   new CifInitializationPublisher(repository).publish(record, "2026-08-12T00:01:00Z");
-  assert.equal(repository.listIdentity("demo", "mash").length, 1);
+  assert.equal(repository.listIdentity("demo", "mash").length, 2);
+  assert.deepEqual(repository.getProfile("demo", "mash"), {
+    sessionId: "demo", characterId: "mash", variantId: "fgo-early", storyPointId: "fuyuki:start",
+    displayName: "玛修", aliases: [], socialIdentity: "Demi-Servant", sourceIds: ["chunk-1"], version: 1,
+  });
+  assert.equal(repository.listIdentity("demo", "mash").find((section) => section.section === "character_brief")?.content, "A guarded young demi-servant protecting the player.");
   assert.equal(repository.listEpistemicStates("demo", "mash", 5).length, 1);
   assert.equal(repository.listInterpretiveModels("demo", "mash", 5).length, 1);
+  assert.equal(repository.listCapabilities("demo", "mash")[0]?.category, "limitation");
+  assert.equal(repository.getLifeContext("demo", "mash")?.responsibilities?.[0], "protect player");
+  assert.equal(repository.listObjectiveRelationships("demo", "mash")[0]?.relationType, "mission_partner");
   assert.deepEqual(repository.getRuntimeState("demo", "mash")?.activeGoals, ["protect player"]);
   assert.deepEqual(repository.getAppearanceFactors("demo", "mash"), {
     sessionId: "demo", characterId: "mash", activeGoals: ["protect player"],

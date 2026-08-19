@@ -43,7 +43,20 @@ export type EventType =
   | "battle_round_resolved"
   | "battle_finished"
   | "character_introduced"
+  | "chapter_entered"
+  | "story_summon_opened"
   | "action_rejected";
+
+/**
+ * Authoritative narrative time. It is independent from wall-clock timestamps,
+ * which remain operational metadata for persistence and worker leases.
+ */
+export interface GameMoment {
+  timelineId: string;
+  tick: number;
+  /** Optional game-owned display/calendar data; Runtime does not calculate it. */
+  calendar?: Record<string, string | number | boolean>;
+}
 
 export interface PlayerAction {
   id: string;
@@ -120,6 +133,8 @@ export interface GameEvent {
   payload: Record<string, unknown>;
   causation: { playerActionId?: string; systemActionId?: string; agentActionId?: string };
   stateRevision: number;
+  /** Missing only on events written before the game-time migration. */
+  moment?: GameMoment;
 }
 
 export interface CharacterState {
@@ -131,6 +146,8 @@ export interface CharacterState {
 export interface GameState {
   sessionId: string;
   revision: number;
+  /** Missing only on old saves; Runtime initializes it as `session:<id>`, tick 0. */
+  moment?: GameMoment;
   characters: Record<string, CharacterState>;
   locations: Record<string, { id: string; exits: string[] }>;
   /** Optional during migration; all new scenes should provide an object map. */
@@ -148,6 +165,7 @@ export interface BattleCombatant {
 
 export interface BattleState {
   id: string;
+  locationId: string;
   status: "active" | "resolved";
   turn: number;
   objective: string;

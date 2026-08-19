@@ -1,11 +1,15 @@
 import { Type } from "typebox";
 import { createAgentSession, DefaultResourceLoader, defineTool, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { buildCifInitializationPrompt, type CifDraftGenerator, type CifInitializationBrief, type CifInitializationDraft } from "../cif/initializer.js";
+import { CIF_INITIALIZATION_SYSTEM_PROMPT } from "../cif/prompts.js";
 
 const confidence = Type.Union([Type.Literal("high"), Type.Literal("medium"), Type.Literal("low")]);
 const section = Type.Union([
+  Type.Literal("character_brief"),
   Type.Literal("self_model"), Type.Literal("core_schema"), Type.Literal("needs"), Type.Literal("values"),
   Type.Literal("possible_self"), Type.Literal("dream"), Type.Literal("commitment"),
+  Type.Literal("appraisal_tendencies"), Type.Literal("emotional_pattern"), Type.Literal("practical_judgment"),
+  Type.Literal("expression_filter"), Type.Literal("voice_embodiment"), Type.Literal("growth_boundaries"),
 ]);
 
 /** Pi worker for a rare initialization job. It has no file, shell, database, or game-state tool. */
@@ -20,6 +24,10 @@ export class PiCifDraftGenerator implements CifDraftGenerator {
       parameters: Type.Object({
         characterId: Type.String(), variantId: Type.String(), storyPointId: Type.String(),
         identity: Type.Array(Type.Object({ section, content: Type.String(), sourceChunkIds: Type.Array(Type.String()), confidence })),
+        profile: Type.Object({ ageOrLifeStage: Type.Optional(Type.String()), socialIdentity: Type.Optional(Type.String()), affiliation: Type.Optional(Type.String()), homeRegion: Type.Optional(Type.String()), objectiveStatus: Type.Optional(Type.String()), sourceChunkIds: Type.Array(Type.String()) }),
+        capabilities: Type.Array(Type.Object({ category: Type.Union([Type.Literal("sensory"), Type.Literal("language"), Type.Literal("professional"), Type.Literal("special"), Type.Literal("limitation")]), content: Type.String(), mechanicalTags: Type.Array(Type.String()), sourceChunkIds: Type.Array(Type.String()) })),
+        lifeContext: Type.Object({ scheduleSummary: Type.Optional(Type.String()), responsibilities: Type.Array(Type.String()), currentProblems: Type.Array(Type.String()), availableResources: Type.Array(Type.String()), missingResources: Type.Array(Type.String()), independentLifeSummary: Type.Optional(Type.String()), sourceChunkIds: Type.Array(Type.String()) }),
+        objectiveRelationships: Type.Array(Type.Object({ targetId: Type.String(), relationType: Type.String(), sharedHistorySummary: Type.Optional(Type.String()), currentObjectiveStatus: Type.Optional(Type.String()), sourceChunkIds: Type.Array(Type.String()) })),
         initialKnowledge: Type.Array(Type.Object({ proposition: Type.String(), sourceChunkIds: Type.Array(Type.String()), confidence })),
         initialRelationships: Type.Array(Type.Object({ targetId: Type.String(), summary: Type.String(), sourceChunkIds: Type.Array(Type.String()), confidence })),
         initialRuntimeState: Type.Object({ mood: Type.Union([Type.Literal("calm"), Type.Literal("alert")]), activeGoals: Type.Array(Type.String()) }),
@@ -38,10 +46,7 @@ export class PiCifDraftGenerator implements CifDraftGenerator {
     const loader = new DefaultResourceLoader({
       cwd: process.cwd(), agentDir: `${process.cwd()}/.pi`, settingsManager,
       systemPromptOverride: () => [
-        "You are a cautious CIF initialization researcher.",
-        "Use only the supplied canon evidence. Do not infer future facts or session memories.",
-        "Every claim must cite supplied sourceChunkIds. Omit unsupported claims and add a review flag.",
-        "Call submit_cif_initialization_draft exactly once. Your draft will not be published automatically.",
+        CIF_INITIALIZATION_SYSTEM_PROMPT,
       ].join("\n"),
     });
     await loader.reload();

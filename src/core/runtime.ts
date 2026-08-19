@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   ActionResult,
   AgentAction,
@@ -9,6 +9,7 @@ import type {
   RuntimeCharacterIntroductionRequest,
   RuntimeBattleStartRequest,
   GameEvent,
+  GameMoment,
   GameState,
   Observation,
   PlayerAction,
@@ -16,27 +17,73 @@ import type {
   RawPlayerInput,
 } from "./contracts.js";
 import { isCombinedTurnRunner, type AgentRunner } from "./agent-runner.js";
+import { nextStepToward, type NavigationPlanner } from "./navigation.js";
 import type { TurnCommitter } from "../persistence/turn-commit.js";
+import type { StoryChapterPackage } from "./worldline.js";
+import type { WorldStatePublisher } from "./world-state.js";
+import type { InteractionTargetResolver } from "./interaction-coordinator.js";
 
 export type RuntimeEventListener = (event: GameEvent, recipientIds: readonly string[]) => void;
 export interface CharacterIntroductionAuthorizer {
   hasPublishedInitialization(sessionId: string, characterId: string): boolean;
 }
+export interface ChapterEntryCommitter {
+  commitEntry(input: { sessionId: string; playerId: string; chapter: StoryChapterPackage; now: string; checkpointRevision: number }): void;
+}
+export interface RuntimeChapterEntryRequest {
+  id: string;
+  sessionId: string;
+  playerId: string;
+  mode: "new" | "assumed_start";
+  chapter: StoryChapterPackage;
+}
+export interface RuntimeCharacterInitiativeRequest {
+  id: string;
+  sessionId: string;
+  playerId: string;
+  characterId: string;
+  reason: string;
+  storySummon?: { packageId: string; nodeId: string };
+}
+export interface RuntimeCharacterApproachRequest {
+  id: string;
+  sessionId: string;
+  playerId: string;
+  characterId: string;
+  expectedPlayerLocationId: string;
+  reason: string;
+}
 
 export class GameRuntime {
-  private readonly processed = new Map<string, ActionResult>();
+  private readonly processed = new Map<string, { requestFingerprint: string; result: ActionResult }>();
+  private readonly inFlight = new Map<string, { requestFingerprint: string; result: Promise<ActionResult> }>();
+  private readonly activeRequestFingerprints = new Map<string, string>();
+  /**
+   * This Runtime owns one session's mutable world state.  Keep every mutation
+   * in arrival order so a failed earlier async turn cannot restore a snapshot
+   * over a later committed turn.
+   */
+  private operationTail: Promise<void> = Promise.resolve();
   private readonly events: GameEvent[] = [];
   private readonly recipientsByEventId = new Map<string, readonly string[]>();
   private readonly listeners = new Set<RuntimeEventListener>();
   private nextSequence: number;
+  private state: GameState;
 
   public constructor(
-    private state: GameState,
+    state: GameState,
     private readonly agents: Record<string, AgentRunner>,
     private readonly committer?: TurnCommitter,
     private readonly introductionAuthorizer?: CharacterIntroductionAuthorizer,
     initialSequence = 0,
-  ) { this.nextSequence = initialSequence; }
+    private readonly chapterEntries?: ChapterEntryCommitter,
+    private readonly worldStatePublisher?: WorldStatePublisher,
+    private readonly navigation?: NavigationPlanner,
+    private readonly interactionTargets?: InteractionTargetResolver,
+  ) {
+    this.state = { ...state, moment: normalizeGameMoment(state.sessionId, state.moment) };
+    this.nextSequence = initialSequence;
+  }
 
   public getState(): Readonly<GameState> {
     return structuredClone(this.state);
@@ -53,8 +100,73 @@ export class GameRuntime {
   }
 
   public async handlePlayerAction(action: PlayerAction): Promise<ActionResult> {
-    const prior = this.processed.get(action.id);
-    if (prior) return prior;
+    return this.handleOnce(action.id, requestFingerprint(action), () => this.handlePlayerActionOnce(action));
+  }
+
+  /** Trusted background entry point for one same-scene NPC opener. */
+  public async runCharacterInitiative(request: RuntimeCharacterInitiativeRequest): Promise<ActionResult> {
+    return this.handleOnce(request.id, requestFingerprint(request), () => this.runCharacterInitiativeOnce(request));
+  }
+
+  /** Trusted background movement: exactly one normal map edge toward a known player location. */
+  public async moveCharacterTowardPlayer(request: RuntimeCharacterApproachRequest): Promise<ActionResult> {
+    return this.handleOnce(request.id, requestFingerprint(request), async () => this.moveCharacterTowardPlayerOnce(request));
+  }
+
+  private moveCharacterTowardPlayerOnce(request: RuntimeCharacterApproachRequest): ActionResult {
+    const player = this.state.characters[request.playerId];
+    const character = this.state.characters[request.characterId];
+    if (request.sessionId !== this.state.sessionId || !player || !character || character.id === player.id) throw new Error("character_approach_unavailable");
+    if (this.state.battle?.status === "active" || player.locationId !== request.expectedPlayerLocationId || character.locationId === player.locationId) throw new Error("character_approach_ineligible");
+    const route = this.navigation?.findRoute(this.state, character.locationId, player.locationId);
+    const destination = route?.kind === "reachable" ? route.steps[0] : route ? undefined : nextStepToward(this.state, character.locationId, player.locationId);
+    if (!destination) throw new Error("character_approach_path_unavailable");
+    const from = character.locationId;
+    const witnesses = this.visibleAt(from);
+    character.locationId = destination;
+    const event = this.append("character_moved", { characterId: character.id, from, to: destination, reason: request.reason }, { systemActionId: request.id }, undefined, [...witnesses, ...this.visibleAt(destination)]);
+    return this.finish(request.id, [event]);
+  }
+
+  private async runCharacterInitiativeOnce(request: RuntimeCharacterInitiativeRequest): Promise<ActionResult> {
+    const stateBefore = structuredClone(this.state);
+    const eventCountBefore = this.events.length;
+    const sequenceBefore = this.nextSequence;
+    try {
+      const player = this.state.characters[request.playerId];
+      const character = this.state.characters[request.characterId];
+      const runner = character ? this.agents[character.id] : undefined;
+      if (request.sessionId !== this.state.sessionId || !player || !character || !runner) throw new Error("proactive_initiative_unavailable");
+      if (this.state.battle?.status === "active" || player.locationId !== character.locationId) throw new Error("proactive_initiative_ineligible");
+      const trigger: PlayerAction = {
+        id: request.id, sessionId: request.sessionId, actorId: request.playerId, type: "action",
+        parameters: { intent: "world_tick_proactive", reason: request.reason },
+      };
+      const observation = this.buildObservation(character, trigger);
+      const agentAction = await runner.run(observation);
+      if (agentAction.actorId !== character.id || agentAction.observationId !== observation.id || agentAction.requests.length) {
+        throw new Error("invalid_proactive_agent_action");
+      }
+      const utterance = agentAction.utterance?.trim();
+      if (!utterance) return this.finish(request.id, []);
+      const event = this.append("character_spoke", {
+        characterId: character.id, targetId: player.id, text: utterance, locationId: character.locationId,
+      }, { systemActionId: request.id }, agentAction, this.visibleAt(character.locationId));
+      const events = [event];
+      if (request.storySummon) events.push(this.append("story_summon_opened", {
+        packageId: request.storySummon.packageId, nodeId: request.storySummon.nodeId, characterId: character.id, playerId: player.id,
+      }, { systemActionId: request.id }, agentAction, this.visibleAt(character.locationId)));
+      return this.finish(request.id, events);
+    } catch (error) {
+      const rolledBack = this.events.splice(eventCountBefore);
+      for (const event of rolledBack) this.recipientsByEventId.delete(event.id);
+      this.state = stateBefore;
+      this.nextSequence = sequenceBefore;
+      throw error;
+    }
+  }
+
+  private async handlePlayerActionOnce(action: PlayerAction): Promise<ActionResult> {
     const stateBefore = structuredClone(this.state);
     const eventCountBefore = this.events.length;
     const sequenceBefore = this.nextSequence;
@@ -74,8 +186,10 @@ export class GameRuntime {
    * parsed player intent and a character response; Runtime validates both.
    */
   public async handleRawPlayerInput(input: RawPlayerInput): Promise<ActionResult> {
-    const prior = this.processed.get(input.id);
-    if (prior) return prior;
+    return this.handleOnce(input.id, requestFingerprint(input), () => this.handleRawPlayerInputOnce(input));
+  }
+
+  private async handleRawPlayerInputOnce(input: RawPlayerInput): Promise<ActionResult> {
     const stateBefore = structuredClone(this.state);
     const eventCountBefore = this.events.length;
     const sequenceBefore = this.nextSequence;
@@ -110,7 +224,7 @@ export class GameRuntime {
       };
       if (action.type !== "dialogue") return this.resolveWorldAction(action);
       if (action.targetIds?.[0] !== target.id || !action.content?.trim()) return this.reject(action, "invalid_combined_player_intent");
-      const playerEvent = this.append("player_spoke", { characterId: action.actorId, targetId: target.id, text: action.content.trim() }, action, undefined, this.visibleAt(this.state.characters[action.actorId]?.locationId));
+      const playerEvent = this.append("player_spoke", { characterId: action.actorId, targetId: target.id, text: action.content.trim(), locationId: this.state.characters[action.actorId]?.locationId }, action, undefined, this.visibleAt(this.state.characters[action.actorId]?.locationId));
       if (proposal.character.actorId !== target.id || proposal.character.observationId !== observation.id) return this.reject(action, "invalid_agent_action", [playerEvent]);
       const privateNote = proposal.player.privateThought?.trim() ? {
         id: randomUUID(), sessionId: input.sessionId, playerId: input.actorId, sourceInputId: input.id,
@@ -126,11 +240,81 @@ export class GameRuntime {
     }
   }
 
+  private handleOnce(actionId: string, fingerprint: string, operation: () => Promise<ActionResult>): Promise<ActionResult> {
+    const prior = this.priorAction(actionId, fingerprint); if (prior) return Promise.resolve(prior);
+    const inFlight = this.inFlight.get(actionId);
+    if (inFlight) {
+      if (inFlight.requestFingerprint !== fingerprint) return Promise.reject(new Error("action_id_conflict"));
+      return inFlight.result;
+    }
+    this.activeRequestFingerprints.set(actionId, fingerprint);
+    const pending = this.enqueue(operation).finally(() => {
+      this.inFlight.delete(actionId);
+      this.activeRequestFingerprints.delete(actionId);
+    });
+    this.inFlight.set(actionId, { requestFingerprint: fingerprint, result: pending });
+    return pending;
+  }
+
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const pending = this.operationTail.then(operation, operation);
+    this.operationTail = pending.then(() => undefined, () => undefined);
+    return pending;
+  }
+
+  private priorAction(actionId: string, fingerprint: string): ActionResult | undefined {
+    const prior = this.processed.get(actionId);
+    if (prior) {
+      if (prior.requestFingerprint !== fingerprint) throw new Error("action_id_conflict");
+      return prior.result;
+    }
+    const persisted = this.committer?.getProcessedActionResult?.(actionId, fingerprint);
+    if (!persisted) return undefined;
+    this.processed.set(actionId, { requestFingerprint: fingerprint, result: persisted });
+    return persisted;
+  }
+
+  /** Trusted story operation. The chapter context and its L0 event commit together. */
+  public async enterChapter(request: RuntimeChapterEntryRequest): Promise<ActionResult> {
+    return this.handleOnce(request.id, requestFingerprint(request), async () => this.enterChapterOnce(request));
+  }
+
+  private enterChapterOnce(request: RuntimeChapterEntryRequest): ActionResult {
+    if (!this.committer || !this.chapterEntries) throw new Error("chapter_entry_committer_unavailable");
+    if (request.sessionId !== this.state.sessionId) throw new Error("session_mismatch");
+    if (!this.state.characters[request.playerId]) throw new Error("unknown_player");
+    const stateBefore = structuredClone(this.state);
+    const eventCountBefore = this.events.length;
+    const sequenceBefore = this.nextSequence;
+    try {
+      const event = this.append("chapter_entered", {
+        playerId: request.playerId, packageId: request.chapter.packageId, contentType: request.chapter.contentType,
+        contentId: request.chapter.contentId, canonAnchor: request.chapter.canonAnchor, entryNodeId: request.chapter.entryNodeId,
+        mode: request.mode,
+      }, { systemActionId: request.id }, undefined, [request.playerId]);
+      return this.finish(request.id, [event], undefined, [() => this.chapterEntries!.commitEntry({
+        sessionId: request.sessionId, playerId: request.playerId, chapter: request.chapter,
+        now: event.createdAt, checkpointRevision: event.stateRevision,
+      })]);
+    } catch (error) {
+      const rolledBack = this.events.splice(eventCountBefore);
+      for (const event of rolledBack) this.recipientsByEventId.delete(event.id);
+      this.state = stateBefore;
+      this.nextSequence = sequenceBefore;
+      throw error;
+    }
+  }
+
   /**
    * Trusted story/GM operation that makes an already-published character
    * present in the objective world. It cannot be reached through PlayerAction.
    */
-  public introduceCharacter(request: RuntimeCharacterIntroductionRequest): ActionResult {
+  public async introduceCharacter(request: RuntimeCharacterIntroductionRequest): Promise<ActionResult> {
+    return this.handleOnce(request.id, requestFingerprint(request), async () => this.introduceCharacterOnce(request));
+  }
+
+  private introduceCharacterOnce(request: RuntimeCharacterIntroductionRequest): ActionResult {
+    const prior = this.priorAction(request.id, requestFingerprint(request)); if (prior) return prior;
     if (request.sessionId !== this.state.sessionId) throw new Error("session_mismatch");
     if (!this.introductionAuthorizer?.hasPublishedInitialization(request.sessionId, request.characterId)) {
       throw new Error("character_initialization_not_published");
@@ -160,7 +344,12 @@ export class GameRuntime {
    * Trusted story/GM operation. It establishes objective combat state before
    * any player input is interpreted as a combat command.
    */
-  public startBattle(request: RuntimeBattleStartRequest): ActionResult {
+  public async startBattle(request: RuntimeBattleStartRequest): Promise<ActionResult> {
+    return this.handleOnce(request.id, requestFingerprint(request), async () => this.startBattleOnce(request));
+  }
+
+  private startBattleOnce(request: RuntimeBattleStartRequest): ActionResult {
+    const prior = this.priorAction(request.id, requestFingerprint(request)); if (prior) return prior;
     if (request.sessionId !== this.state.sessionId) throw new Error("session_mismatch");
     if (this.state.battle?.status === "active") throw new Error("battle_already_active");
     if (!this.state.locations[request.locationId]) throw new Error("battle_location_unknown");
@@ -171,7 +360,7 @@ export class GameRuntime {
     try {
       const allies = this.validateBattleSide(request.allies, request.locationId, true);
       const enemies = this.validateBattleSide(request.enemies, request.locationId, false);
-      this.state.battle = { id: request.id, status: "active", turn: 1, objective: request.objective.trim(), allies, enemies };
+      this.state.battle = { id: request.id, locationId: request.locationId, status: "active", turn: 1, objective: request.objective.trim(), allies, enemies };
       const event = this.append("battle_started", {
         battleId: request.id, locationId: request.locationId, objective: request.objective.trim(),
         allies: Object.values(allies).map((combatant) => ({ id: combatant.id, hp: combatant.hp, maxHp: combatant.maxHp })),
@@ -194,9 +383,11 @@ export class GameRuntime {
     if (action.type === "action") return this.resolveWorldAction(action);
     if (action.type === "combat") return this.resolveBattleAction(action);
 
-    const targetId = action.targetIds?.[0];
+    if (!action.content?.trim()) return this.reject(action, "dialogue_requires_content_and_target");
+    const targetId = this.interactionTargets?.resolve({ state: this.getState(), action, requestedTargetId: action.targetIds?.[0] }) ?? action.targetIds?.[0];
     const target = targetId ? this.state.characters[targetId] : undefined;
-    if (!action.content?.trim() || !target) return this.reject(action, "dialogue_requires_content_and_target");
+    if (!target) return this.reject(action, "dialogue_requires_content_and_target");
+    const resolvedAction: PlayerAction = targetId === action.targetIds?.[0] ? action : { ...action, targetIds: [target.id] };
 
     // Dialogue's validation above establishes a target; this keeps the
     // runtime resilient if further action types are added later.
@@ -204,14 +395,14 @@ export class GameRuntime {
     const runner = this.agents[target.id];
     if (!runner) return this.reject(action, "target_has_no_agent");
     const dialogueEvent = this.append("player_spoke", {
-      characterId: action.actorId, targetId: target.id, text: action.content.trim(),
-    }, action, undefined, this.visibleAt(this.state.characters[action.actorId]?.locationId));
-    const observation = this.buildObservation(target, action);
+      characterId: action.actorId, targetId: target.id, text: action.content.trim(), locationId: this.state.characters[action.actorId]?.locationId,
+    }, resolvedAction, undefined, this.visibleAt(this.state.characters[action.actorId]?.locationId));
+    const observation = this.buildObservation(target, resolvedAction);
     const agentAction = await runner.run(observation);
     if (agentAction.actorId !== target.id || agentAction.observationId !== observation.id) {
-      return this.reject(action, "invalid_agent_action", [dialogueEvent]);
+      return this.reject(resolvedAction, "invalid_agent_action", [dialogueEvent]);
     }
-    return this.resolveAgentAction(action, agentAction, [dialogueEvent]);
+    return this.resolveAgentAction(resolvedAction, agentAction, [dialogueEvent]);
   }
 
   private resolveWorldAction(action: PlayerAction): ActionResult {
@@ -228,9 +419,14 @@ export class GameRuntime {
     }
     if (kind === "wait") {
       const actor = this.state.characters[action.actorId];
+      const from = this.currentMoment();
+      this.advanceGameTime();
       return this.finish(action.id, [this.append("time_waited", {
         characterId: actor.id,
         locationId: actor.locationId,
+        ticks: 1,
+        fromTick: from.tick,
+        toTick: this.currentMoment().tick,
       }, action, undefined, this.visibleAt(actor.locationId))]);
     }
     if (kind === "inspect") return this.resolveInspect(action);
@@ -299,7 +495,7 @@ export class GameRuntime {
       battleId: battle.id, turn: battle.turn, participation: "quick_resolve", prototype: true,
       changes: [{ outcome, note: "Prototype quick resolver; no detailed exchange was simulated." }],
     }, action, undefined, this.battleRecipients(battle, action.actorId));
-    const finished = this.append("battle_finished", { battleId: battle.id, outcome, objective: battle.objective }, action, undefined, this.battleRecipients(battle, action.actorId));
+    const finished = this.append("battle_finished", { battleId: battle.id, locationId: battle.locationId, outcome, objective: battle.objective }, action, undefined, this.battleRecipients(battle, action.actorId));
     return this.finish(action.id, [round, finished]);
   }
 
@@ -336,7 +532,7 @@ export class GameRuntime {
       battleId: battle.id, turn, participation, prototype: true, changes,
     }, action, undefined, this.battleRecipients(battle, action.actorId))];
     if (battle.status === "resolved") events.push(this.append("battle_finished", {
-      battleId: battle.id, outcome: battle.outcome, objective: battle.objective,
+      battleId: battle.id, locationId: battle.locationId, outcome: battle.outcome, objective: battle.objective,
     }, action, undefined, this.battleRecipients(battle, action.actorId)));
     return this.finish(action.id, events);
   }
@@ -435,7 +631,11 @@ export class GameRuntime {
       if (!this.canMove(request.actorId, request.destination)) return this.reject(action, "destination_unreachable", events);
     }
     if (agentAction.utterance) {
-      events.push(this.append("character_spoke", { characterId: agentAction.actorId, text: agentAction.utterance }, action, agentAction, this.visibleAt(this.state.characters[agentAction.actorId]?.locationId)));
+      const locationId = this.state.characters[agentAction.actorId]?.locationId;
+      events.push(this.append("character_spoke", {
+        characterId: agentAction.actorId, targetId: action.actorId, text: agentAction.utterance,
+        ...(locationId ? { locationId } : {}),
+      }, action, agentAction, this.visibleAt(locationId)));
     }
     for (const request of agentAction.requests) {
       const event = this.createMoveEvent(action, request.actorId, request.destination, agentAction);
@@ -468,7 +668,10 @@ export class GameRuntime {
     this.state.revision += 1;
     const baseCausation = "actorId" in causation ? { playerActionId: causation.id } : causation;
     const event: GameEvent = { id: randomUUID(), sessionId: this.state.sessionId, createdAt: new Date().toISOString(), sequence: ++this.nextSequence, type, payload,
-      causation: { ...baseCausation, agentActionId: agentAction?.id }, stateRevision: this.state.revision };
+      causation: {
+        ...baseCausation,
+        ...(agentAction?.id ? { agentActionId: agentAction.id } : {}),
+      }, stateRevision: this.state.revision, moment: structuredClone(this.currentMoment()) };
     this.events.push(event);
     this.recipientsByEventId.set(event.id, recipients);
     return event;
@@ -479,14 +682,53 @@ export class GameRuntime {
     return Object.values(this.state.characters).filter((character) => character.locationId === locationId).map((character) => character.id);
   }
 
-  private finish(actionId: string, events: GameEvent[], playerPrivateNote?: PlayerPrivateNote): ActionResult {
+  private currentMoment(): GameMoment {
+    return this.state.moment!;
+  }
+
+  private advanceGameTime(): void {
+    const current = this.currentMoment();
+    if (current.tick === Number.MAX_SAFE_INTEGER) throw new Error("game_tick_overflow");
+    this.state.moment = { ...current, tick: current.tick + 1 };
+  }
+
+  private finish(actionId: string, events: GameEvent[], playerPrivateNote?: PlayerPrivateNote, commitEffects?: readonly (() => void)[]): ActionResult {
     const result = { actionId, events, stateRevision: this.state.revision };
-    this.committer?.commit({ actionId, sessionId: this.state.sessionId, stateRevision: result.stateRevision, worldState: structuredClone(this.state), events, recipientsByEventId: this.recipientsByEventId, playerPrivateNote });
-    this.processed.set(actionId, result);
+    const requestFingerprint = this.activeRequestFingerprints.get(actionId);
+    if (!requestFingerprint) throw new Error("missing_action_fingerprint");
+    this.committer?.commit({ actionId, requestFingerprint, sessionId: this.state.sessionId, stateRevision: result.stateRevision, worldState: structuredClone(this.state), events, recipientsByEventId: this.recipientsByEventId, playerPrivateNote, commitEffects });
+    this.worldStatePublisher?.publishCommittedState(this.state);
+    this.processed.set(actionId, { requestFingerprint, result });
     for (const event of events) {
       const recipients = this.recipientsByEventId.get(event.id) ?? [];
       for (const listener of this.listeners) listener(event, recipients);
     }
     return result;
   }
+}
+
+function requestFingerprint(request: object): string {
+  return createHash("sha256").update(JSON.stringify(canonicalize(request))).digest("hex");
+}
+
+function canonicalize(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(canonicalize);
+  return Object.fromEntries(Object.entries(value)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([key, child]) => [key, canonicalize(child)]));
+}
+
+function defaultGameMoment(sessionId: string): GameMoment {
+  return { timelineId: `session:${sessionId}`, tick: 0 };
+}
+
+function normalizeGameMoment(sessionId: string, moment: GameMoment | undefined): GameMoment {
+  if (!moment) return defaultGameMoment(sessionId);
+  if (!moment.timelineId.trim() || !Number.isSafeInteger(moment.tick) || moment.tick < 0) throw new Error("invalid_game_moment");
+  if (moment.calendar && Object.values(moment.calendar).some((value) => !["string", "number", "boolean"].includes(typeof value))) {
+    throw new Error("invalid_game_calendar");
+  }
+  return structuredClone(moment);
 }

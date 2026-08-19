@@ -2,13 +2,14 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from "node:fs/promises";
 import type { PlayerAction, RawPlayerInput } from "../core/contracts.js";
 import { DeterministicPlayerInputInterpreter, type PlayerInputInterpreter } from "../core/player-input.js";
-import { GameRuntime } from "../core/runtime.js";
+import type { CommandGateway } from "../core/command-gateway.js";
 import { buildPlayerVisibleState } from "./projection.js";
 import { CifDraftService } from "../cif/draft-service.js";
 import { CifInitializer, type CharacterIntroductionRequest } from "../cif/initializer.js";
 import { CifInitializationPublisher } from "../cif/publisher.js";
 import { SqliteCifRepository } from "../cif/sqlite-repository.js";
 import { DeterministicNarrativeRenderer } from "../narrative/renderer.js";
+import type { StoryChapterController } from "../core/story-chapters.js";
 
 export interface CifAdminDependencies {
   repository: SqliteCifRepository;
@@ -16,8 +17,11 @@ export interface CifAdminDependencies {
   publisher: CifInitializationPublisher;
   draftService?: CifDraftService;
 }
+export interface StoryApiDependencies {
+  chapters: StoryChapterController;
+}
 
-export function createGameApiServer(runtime: GameRuntime, cifAdmin?: CifAdminDependencies, playerInputInterpreter: PlayerInputInterpreter = new DeterministicPlayerInputInterpreter()): Server {
+export function createGameApiServer(runtime: CommandGateway, cifAdmin?: CifAdminDependencies, playerInputInterpreter: PlayerInputInterpreter = new DeterministicPlayerInputInterpreter(), story?: StoryApiDependencies): Server {
   const narrativeRenderer = new DeterministicNarrativeRenderer();
   return createServer(async (request, response) => {
     try {
@@ -25,6 +29,8 @@ export function createGameApiServer(runtime: GameRuntime, cifAdmin?: CifAdminDep
       if (request.method === "GET" && requestUrl && await serveStatic(requestUrl.pathname, response)) return;
       const cifMatch = requestUrl?.pathname.match(/^\/sessions\/([^/]+)\/cif\/(brief|drafts)(?:\/([^/]+)\/(approve))?$/);
       if (cifMatch && requestUrl) return handleCifRequest(request, response, cifMatch, runtime, cifAdmin);
+      const chapterMatch = requestUrl?.pathname.match(/^\/sessions\/([^/]+)\/chapters(?:\/(current|enter))?$/);
+      if (chapterMatch && requestUrl) return handleChapterRequest(request, response, chapterMatch, runtime, story);
       const match = requestUrl?.pathname.match(/^\/sessions\/([^/]+)\/(state|actions|events)$/);
       if (!match || !requestUrl) return send(response, 404, { error: "not_found" });
       const [, sessionId, resource] = match;
@@ -74,7 +80,36 @@ export function createGameApiServer(runtime: GameRuntime, cifAdmin?: CifAdminDep
   });
 }
 
-async function handleCifRequest(request: IncomingMessage, response: ServerResponse, match: RegExpMatchArray, runtime: GameRuntime, admin?: CifAdminDependencies): Promise<void> {
+async function handleChapterRequest(request: IncomingMessage, response: ServerResponse, match: RegExpMatchArray, runtime: CommandGateway, story?: StoryApiDependencies): Promise<void> {
+  if (!story) return send(response, 503, { error: "story_chapters_unavailable" });
+  const [, sessionId, operation] = match;
+  if (sessionId !== runtime.getState().sessionId) return send(response, 404, { error: "unknown_session" });
+  if (request.method === "GET" && !operation) {
+    const playerId = new URL(request.url ?? "", "http://localhost").searchParams.get("playerId");
+    if (!playerId) return send(response, 400, { error: "playerId_required" });
+    const current = story.chapters.getContext(sessionId, playerId);
+    return send(response, 200, story.chapters.list().map((chapter) => ({
+      packageId: chapter.packageId, contentType: chapter.contentType, contentId: chapter.contentId, entryNodeId: chapter.entryNodeId, canonAnchor: chapter.canonAnchor, version: chapter.version,
+      active: current?.chapters.some(({ package: persistedChapter }) => persistedChapter.packageId === chapter.packageId) ?? false,
+    })));
+  }
+  if (request.method === "GET" && operation === "current") {
+    const playerId = new URL(request.url ?? "", "http://localhost").searchParams.get("playerId");
+    if (!playerId) return send(response, 400, { error: "playerId_required" });
+    const context = story.chapters.getContext(sessionId, playerId);
+    return send(response, 200, context ?? { current: null });
+  }
+  if (request.method === "POST" && operation === "enter") {
+    const input = await readJson<{ id?: string; playerId?: string; packageId?: string; mode?: "new" | "resume" | "assumed_start" }>(request);
+    if (!input.id || !input.playerId || !input.packageId || (input.mode !== "new" && input.mode !== "resume" && input.mode !== "assumed_start")) return send(response, 400, { error: "invalid_chapter_entry" });
+    if (!runtime.getState().characters[input.playerId]) return send(response, 404, { error: "unknown_player" });
+    await story.chapters.enter({ id: input.id, sessionId, playerId: input.playerId, packageId: input.packageId, mode: input.mode });
+    return send(response, 200, story.chapters.getContext(sessionId, input.playerId));
+  }
+  return send(response, 405, { error: "method_not_allowed" });
+}
+
+async function handleCifRequest(request: IncomingMessage, response: ServerResponse, match: RegExpMatchArray, runtime: CommandGateway, admin?: CifAdminDependencies): Promise<void> {
   if (!admin) return send(response, 503, { error: "cif_admin_unavailable" });
   const [, sessionId, resource, draftId, operation] = match;
   if (sessionId !== runtime.getState().sessionId) return send(response, 404, { error: "unknown_session" });
@@ -115,7 +150,8 @@ const staticFiles: Record<string, { file: string; contentType: string }> = {
   "/expression-lab": { file: "expression-lab.html", contentType: "text/html; charset=utf-8" },
   "/expression-lab.css": { file: "expression-lab.css", contentType: "text/css; charset=utf-8" },
   "/expression-lab.js": { file: "expression-lab.js", contentType: "text/javascript; charset=utf-8" },
-  "/assets/mash-expression-sheet.png": { file: "../98001000_merged.png", contentType: "image/png" },
+  "/assets/mash-expression-sheet.png": { file: "assets/atlas/98001000_merged.png", contentType: "image/png" },
+  "/assets/atlas/98001000.svtScript.json": { file: "assets/atlas/98001000.svtScript.json", contentType: "application/json; charset=utf-8" },
 };
 
 async function serveStatic(pathname: string, response: ServerResponse): Promise<boolean> {

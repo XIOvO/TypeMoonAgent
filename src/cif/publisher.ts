@@ -19,6 +19,24 @@ export class CifInitializationPublisher {
     }
     const { request } = stored.brief;
     this.repository.transaction(() => {
+      this.repository.saveProfile({
+        sessionId: request.sessionId, characterId: request.characterId, variantId: request.variantId,
+        storyPointId: request.storyPointId, displayName: request.displayName, aliases: request.aliases ?? [],
+        ...stored.draft.profile, sourceIds: stored.draft.profile.sourceChunkIds, version: 1,
+      });
+      for (const item of stored.draft.capabilities) this.repository.saveCapability({
+        id: randomUUID(), sessionId: request.sessionId, characterId: request.characterId, category: item.category,
+        content: item.content, mechanicalTags: item.mechanicalTags, sourceIds: item.sourceChunkIds, version: 1,
+      });
+      this.repository.saveLifeContext({
+        sessionId: request.sessionId, characterId: request.characterId, ...stored.draft.lifeContext,
+        sourceIds: stored.draft.lifeContext.sourceChunkIds, version: 1,
+      });
+      for (const item of stored.draft.objectiveRelationships) this.repository.saveObjectiveRelationship({
+        id: randomUUID(), sessionId: request.sessionId, characterId: request.characterId, targetId: item.targetId,
+        relationType: item.relationType, sharedHistorySummary: item.sharedHistorySummary,
+        currentObjectiveStatus: item.currentObjectiveStatus, sourceIds: item.sourceChunkIds, version: 1,
+      });
       const existing = this.repository.listIdentity(request.sessionId, request.characterId);
       for (const item of stored.draft.identity) {
         const version = Math.max(0, ...existing.filter((model) => model.section === item.section).map((model) => model.version)) + 1;
@@ -43,7 +61,8 @@ export class CifInitializationPublisher {
       }
       this.repository.saveRuntimeState({
         sessionId: request.sessionId, characterId: request.characterId, attention: request.introduction.presentEntityIds,
-        emotions: [], activeGoals: stored.draft.initialRuntimeState.activeGoals, updatedAt: publishedAt,
+        emotions: [], activeGoals: stored.draft.initialRuntimeState.activeGoals, locationId: request.introduction.locationId,
+        availability: "free", updatedAt: publishedAt,
       });
       this.repository.saveAppearanceFactors({
         sessionId: request.sessionId, characterId: request.characterId,

@@ -46,6 +46,10 @@ export class DeterministicNarrativeRenderer {
         return [{ id: event.id, kind: "narration", record: "backlog", text: "时间安静地流逝。" }];
       case "character_introduced":
         return [{ id: event.id, kind: "system", record: "world", importance: "important", text: `${this.names.nameFor(stringValue(payload.characterId, "unknown"))}已在${this.names.locationNameFor(stringValue(payload.locationId, "unknown"))}出现。` }];
+      case "chapter_entered":
+        return [{ id: event.id, kind: "system", record: "world", importance: "important", text: `故事阶段已切换至${stringValue(payload.contentId, "新的篇章")}。` }];
+      case "story_summon_opened":
+        return [{ id: event.id, kind: "system", record: "none", importance: "temporary", text: "剧情开场已确认。" }];
       case "battle_started":
         return [{ id: event.id, kind: "system", record: "world", importance: "important", text: `战斗开始：${stringValue(payload.objective, "未知目标")}。` }];
       case "battle_round_resolved":

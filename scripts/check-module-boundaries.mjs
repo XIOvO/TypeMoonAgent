@@ -5,11 +5,13 @@ const sourceRoot = resolve("src");
 const allowedDependencies = {
   agents: ["agents", "cif", "core"],
   api: ["api", "cif", "core", "narrative"],
-  app: ["agents", "api", "app", "cif", "core", "lore", "narrative", "persistence", "story"],
+  app: ["agents", "api", "app", "cif", "core", "lore", "narrative", "persistence", "platform", "plugins", "story"],
   cif: ["cif", "core", "lore"],
   core: ["core", "persistence"],
   lore: ["lore"],
   narrative: ["core", "narrative"],
+  platform: ["platform"],
+  plugins: ["cif", "core", "persistence", "platform", "plugins", "story"],
   persistence: ["cif", "core", "persistence"],
   story: ["cif", "core", "story"],
 };

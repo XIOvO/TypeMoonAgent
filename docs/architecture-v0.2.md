@@ -1,5 +1,22 @@
 # Agent Game 整体框架 V0.2：持久角色 + Pi Agent + 事件世界
 
+## 0. 最高设计规则：程序优先、AI 提案、Runtime 裁定
+
+> **AI 是叙事与角色表现的必要服务；Runtime 是世界一致性与可恢复性的必要核心。**
+
+本项目采用 **Program-first, AI-proposes, Runtime-commits** 作为所有模块共同遵守的最高规则：
+
+```text
+固定程序拥有：世界状态、游戏内时间、规则结算、战斗、任务、存档、事件日志与前端投影。
+AI 只能：读取被授权的上下文，并提出角色行动、剧情机会、记忆/关系更新或时间中断建议。
+Runtime 必须：校验权限、前置条件、可见性、规则与幂等性；确认或拒绝提案；
+              写入唯一有效的 GameEvent，并据此更新状态与前端。
+```
+
+AI 不得直接修改数据库、WorldState、游戏时钟、战斗结果、任务状态或前端可见事实；任何 AI 产出在未经 Runtime 裁定前均只是提案。
+
+若 AI 模型超时、断连或不可用，依赖 AI 的剧情与角色表现可以暂停或向玩家明确报错；但已经确认的世界状态、事件、时间、存档与后台任务不得损坏、半提交或变为矛盾。AI 恢复或更换后，系统必须能从同一份持久状态继续运行。未来可选的确定性“单机降级模式”不属于当前 MVP 的前提。
+
 ## 1. 核心定义
 
 这是一个 Agent 驱动的开放世界游戏框架。第一阶段可服务于 FGO / 型月风格的世界模拟，但架构不依赖特定 IP。
@@ -51,6 +68,62 @@
 │ Relationship / Social Model · Lore · Events · Vector Index    │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+## 2.1 插件组合层：能力可替换，事实不可绕过
+
+系统采用游戏自有的插件协议，并以 DeepSeek Harness 发布的 `@deepseek-ai/cordis` 作为当前生命周期平台。`bootstrap(platform, composition)` 是唯一的无业务启动入口；`composition` 显式列出启用的插件、版本、依赖与能力。
+
+```text
+Composition Root（仅装配）
+  ├─ system.durable-jobs       → world.jobs / world.eventTasks
+  ├─ system.persistence        → world.eventHistory / system.turnCommitter
+  ├─ system.world-state        → world.state
+  ├─ system.command-authority  → world.commandGateway
+  ├─ system.world-map          → world.map
+  ├─ system.world-navigation   → world.navigation
+  ├─ feature.world-simulation  → world.simulation
+  ├─ feature.story-chapters    → world.storyChapters
+  ├─ feature.story-summon      → world.storySummon
+  ├─ feature.memory-consolidation → world.memoryConsolidation
+  ├─ feature.cif-patterns      → world.cifPatterns
+  ├─ feature.cif-publication   → world.cifPublication
+  └─ future: feature.*         → 战斗、CIF、前端适配
+```
+
+每个插件必须声明 `requires`、`provides`、配置版本以及其拥有的事件/耐久任务种类。启动前拒绝重复能力、缺失依赖和循环依赖；卸载时撤销监听器、worker 与临时资源。插件只能通过已声明的能力协作，不能绕过 `world.commandGateway` 直接写入已确认世界事实。
+
+插件是“可替换的系统积木”，不是“任意数据都可卸载”。角色档案、记忆、存档和已确认事件仍是持久事实；插件定义的是读取、处理和受控改变这些事实的能力。当前 `GameRuntime` 仍是写权兼容实现，后续会被逐步收束为核心规则插件，而不是在一次重写中替换。
+
+剧情的“进入章节”和“召集角色”已按职责拆开：`feature.story-chapters` 统一主线、活动的新开与续玩，并经命令网关确认进入；`feature.story-summon` 将章节开场与后续时间推进转为可恢复任务，再只经命令网关请求同场互动或单步跨地点接近。因此活动点击与主线条件满足共享一条安全链路，但内容包、分支规则和原子投影仍属于章节持久领域，尚不开放给任意插件改写。
+
+角色记忆采用同样的冷热分层：确认事件的热路径只写客观历史、可见证据和耐久任务；`feature.memory-consolidation` 在冷路径消费 `memory.l1`，让模型在隔离证据上提议一段角色专属回忆，再由程序保留来源链并输出不含私密解释的 GM 投影。L2 的生成、审核和发布被拆为独立耐久阶段，避免把“记住一件事”和“改变长期判断”混为同一次后台调用。
+
+L2 的跨场景模式归纳由 `feature.cif-patterns` 处理：`memory.l2` 至少在两段 L1 记忆共同支持、且包含本次触发记忆时，才可冻结一项关系解释、可错信念或重复目标提案；`memory.l2.audit` 交由独立审核 AI 判断。审核结论只能是批准、暂缓或拒绝，且必须附带来源、理由、风险级别与策略版本；程序二次校验后，仅低风险批准可自动发布。人格、价值观与 CIF 身份段落仍明确属于更高门槛的 L3 修订流程。这样既保留长期成长的证据链，也不会让一次模型调用悄悄改变角色。
+
+`feature.cif-publication` 是 L2/L3 的共同发布边界：审核 AI 提供可验证结论，发布器重读批准状态，并在同一事务内保留审核结论、来源与版本、更新 live 状态和完成任务。玩家不会看到也不参与审核；上下文只读取最新有效判断。L0 的确认事件与 L1 的场景记忆不会经由此插件改写。L3 已拥有同一生成、审核与版本化发布闭环，但只允许独立策略安排的 `memory.l3` 任务进入；它默认只可渐进修订适应和表达层，不会自动改写核心人格。
+
+`feature.scene-lifecycle` 订阅事务内事件任务，但不拥有 Runtime 的裁决权。它把已确认事件投影为可恢复的 `scene_opened`、`interaction_settled`、`scene_closed` 与场景阶段记录：首次有效玩家互动打开场景，玩家移动关闭旧场景并打开新场景，战斗只切换阶段。它不以墙钟时间关闭场景，也不调用 AI；前台、记忆策略与未来 GM 都应读取这一投影，而不是自行猜测场景边界。
+
+`feature.interaction-coordinator` 生成可解释的参与计划，并拥有 `interaction.execute` 工作流：执行单与 Outbox 使用同一玩家动作幂等键；worker 重启后可恢复动作、主回应者和尝试状态，只经命令网关调用 Runtime。只有确认得到 `character_spoke` L0 事件才标记完成；无回应为跳过，异常由耐久队列退避重试。执行单不是 L0，不能把模型失败伪装成世界事实。当前 API 尚未把未点名对话的入口迁移到执行单，普通对话仍走同步兼容路径；这是下一次迁移的唯一入口缺口。
+
+## 2.2 空间与地图：当前最小模型不等于正式地图
+
+当前世界只具备最小空间模型：`GameState.locations` 保存地点及出口，`nextStepToward()` 在出口图上计算一条最短下一步路径。它已足以支持相邻移动、跨地点接近玩家与剧情召集，但不是完整地图系统。
+
+正式地图将分为两个独立层：
+
+```text
+静态地图拓扑（world.map）
+  区域 / 楼层 / 场景节点 / 路径 / 单双向 / 进入条件 / 基础代价
+             +
+动态世界状态（world.state）
+  封锁、门锁、破坏、剧情开放、临时危险、玩家已探索范围
+             ↓
+导航能力（world.navigation）
+  可达性、下一步、完整路线、预计时间与不可达原因
+```
+
+`world.map` 与 `world.navigation` 只回答空间事实和查询，不能自行移动角色、推进时间或开启剧情；这些变化仍由 `world.commandGateway` 接收的受控命令确认。地图 UI、迷雾、传送、路线成本和动态封锁会在地图领域模型稳定后逐步接入，而不会把当前 `exits` 数组直接暴露为永久公共协议。详见 [地图与导航设计](map-and-navigation.md)。
 
 ## 3. 四个权威边界
 
@@ -187,17 +260,33 @@ PlayerAction → Runtime → 最小 Observation → 1 个相关 Pi Agent → 裁
 每轮先机械记录已确认事件；仅在场景/一天结束、累计足够重要事件、重大情绪事件或潜在关系阶段变化时，再批量调用模型：
 
 ```text
-GameEvent / relationship evidence
-  → Consolidation worker
+GameEvent / Runtime-created world job
+  → durable Job / Outbox（幂等键、状态、重试）
+  → Consolidation / Simulation worker
   → Memory summary / Belief / Relationship / long-term emotion update
-  → Database
+  → Runtime commit（若改变客观事实）/ Database（若仅为派生认知）
 ```
 
-这样“实时记录 + 延迟整合”替代“每个事件都实时总结”，可同时降低成本、延迟和长期状态噪声。
+这样“实时记录 + 延迟整合”替代“每个事件都实时总结”，可同时降低成本、延迟和长期状态噪声。Job 必须和触发它的事件在同一持久化事务中写入；不得只用进程内事件订阅作为唯一投递机制。
+
+### 8.1 后台连续性：按需模拟，不是常驻思考
+
+世界推进由 Runtime 的确定性时钟、章节压力或玩家回归触发。它先筛选受影响角色并创建 `SimulationJob`，再按预算唤醒必要的 Agent：
+
+```text
+WorldTick / player_return / story_pressure
+  → Runtime 规则筛选角色
+  → SimulationJob（持久化、可重试、可审计）
+  → Agent 提出角色意图或叙事机会
+  → Runtime 裁决
+  → GameEvent → 状态、记忆与前端投影
+```
+
+因此角色能够拥有离场期间的连续经历，同时避免为大量 NPC 常驻运行 LLM。
 
 ## 9. 从当前骨架到完整版本
 
-当前项目已实现：契约、内存 Runtime、事件序列、幂等 PlayerAction、角色 Observation、受控 Pi Agent adapter 与单元测试。
+当前项目已实现：SQLite 持久化 Runtime、事件序列、幂等命令、角色 Observation、受控 Pi Agent adapter，以及第一批系统插件（任务队列、已提交世界状态、命令权威）。
 
 后续顺序：
 
@@ -205,8 +294,9 @@ GameEvent / relationship evidence
 2. 为 Runtime 增加 HTTP / WebSocket API，并接入最小对话 UI。
 3. 用 SQLite 实现 Event Log、WorldState、CharacterState、CIF sections 与 Memory 的持久化仓储。
 4. 添加 `recall_memory`、`search_known_facts`、`inspect_visible_scene` 等游戏工具及权限过滤。
-5. 增加冷路径 Consolidation worker，先做规则触发和批量记忆生成。
-6. 扩展到多角色调度、复杂规则和条件触发的 GM / World Director。
+5. 将冷路径任务统一为持久化 Job / Outbox；把现有记忆整合作为首个消费者。
+6. 新增受预算约束的 `WorldTick` / `SimulationJob`，先支持少量角色的按需世界推进。
+7. 扩展到多角色调度、复杂规则和条件触发的 GM / World Director。
 
 ## 10. 一句话总括
 

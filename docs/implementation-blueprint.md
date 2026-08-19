@@ -22,7 +22,7 @@ Game Runtime ── Pi Agent Runner ── Pi Model Runtime / Model Provider
     │                                      └── Lore Store
     ├── State Repository
     ├── Event Repository
-    └── Cold-path Queue ── Memory / Summary / Director Workers
+    └── Job / Outbox Repository ── Memory / Summary / Simulation / Director Workers
 ```
 
 | 模块 | 负责 | 不负责 |
@@ -49,6 +49,7 @@ knowledge_entries(id, content, metadata_json, visibility_json, …)
 memories(id, owner_id, session_id, event_ids_json, summary, salience,
          metadata_json, embedding_version, created_at)
 jobs(id, type, idempotency_key, payload_json, status, attempts, …)
+outbox(id, session_id, event_id, job_id, kind, created_at, delivered_at, …)
 ```
 
 要求：
@@ -56,6 +57,7 @@ jobs(id, type, idempotency_key, payload_json, status, attempts, …)
 - `events(session_id, sequence)` 唯一，且 sequence 不可回退。
 - `processed_actions(action_id)` 唯一，用于 PlayerAction 幂等。
 - `session_characters` 与 `sessions.state_revision` 的更新必须与事件写入同一事务完成。
+- 由事件触发的 Job / Outbox 必须在同一事务写入；Worker 可重复投递，但必须按 `idempotency_key` 安全消费。
 - 向量检索命中后，必须回查 Knowledge / Memory 的权限元数据再返回结果。
 
 ## 服务接口
@@ -92,10 +94,16 @@ resolve_requests(requests, state) -> GameEvent[]
 3. 执行确定性前置校验；不可执行的行动直接形成拒绝结果。
 4. 调用 Pi Agent（如本轮需要），并验证其工具提交的输出契约。
 5. 裁决所有允许的请求。
-6. 单一事务内写入 events、状态更新、`processed_actions` 与冷路径 job。
+6. 单一事务内写入 events、状态更新、`processed_actions` 与冷路径 Job / Outbox。
 7. 事务成功后推送事件；推送失败可由事件流重放补齐。
 
 模型调用在事务外进行；最终写入前必须重新确认 state revision 或按照冲突策略重新裁决。
+
+## 能力组合与生命周期
+
+`app` 作为 Composition Root 显式装配能力。每项可选能力须提供一份小型声明：依赖的端口、提供的功能、启动动作、停止动作与它消费的 Job 类型。不要通过全局单例或隐式监听器让模块取得世界状态写入权。
+
+第一阶段只需静态注册：`MemoryConsolidationCapability`、后续 `WorldSimulationCapability`、`CombatCapability`。没有必要在 MVP 引入动态下载、任意代码插件或复杂服务发现。
 
 ## 首个垂直切片
 

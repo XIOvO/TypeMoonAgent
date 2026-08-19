@@ -1,6 +1,6 @@
 # Agent Game：整体框架总览
 
-这是一个面向单人本地游玩的 Agent Game。Pi Agent 负责角色的理解、判断和受限意图；`GameRuntime` 是唯一能确认世界事实并改变世界状态的裁判；SQLite 保存长期世界、CIF 与事件；资料库为角色和导演按需提供原作证据。
+这是一个面向单人本地游玩的 Agent Game。Pi Agent 负责角色的理解、判断和受限意图；`GameRuntime` 是唯一能确认世界事实并改变世界状态的裁判；SQLite 保存长期世界、CIF 与事件；资料库为角色和导演按需提供原作证据。`app` 处的运行与组合层负责装配可选能力及其后台 Worker，但不拥有世界事实或裁决权。
 
 ```text
 Web Frontend
@@ -45,6 +45,10 @@ Pi Character Agent ◄── CharacterContext ◄── CIF / 记忆 / 受限原
 ```
 
 普通对话目标是 `1` 次角色模型调用；普通移动/观察可为 `0` 次。记忆整合、关系更新、章节压力推进等属于低频冷路径，不阻塞玩家。
+
+## 运行与组合原则
+
+记忆整合、世界推进、战斗和导演属于可选能力，而不是角色实体。每项能力都需声明它依赖什么、提供什么、如何启动和如何停止；由已确认事件触发的后台工作必须在同一事务中进入持久化 Job / Outbox，具备幂等与重试。世界推进只按规则筛选受影响角色并创建 `SimulationJob`，不让所有 NPC 常驻调用模型。
 
 首次登场使用受信任的 `introduceCharacter` 操作，而非玩家输入：它只接受已发布 CIF 的角色，将其放入有效地点并生成 `character_introduced` 事件。详情见 [character-introduction.md](character-introduction.md)。
 
