@@ -38,6 +38,7 @@ import { createStorySummonPlugin } from "../plugins/feature/story-summon.js";
 import { createStoryAppearancePlugin } from "../plugins/feature/story-appearance.js";
 import { createSimpleCombatPlugin } from "../plugins/feature/simple-combat.js";
 import { SimpleCombatActionHandler } from "../plugins/feature/simple-combat-rules.js";
+import { createPlayerNavigationPlugin } from "../plugins/feature/player-navigation.js";
 import { chaldeaOpeningAvailability } from "../story/availability.js";
 import { createMemoryConsolidationPlugin } from "../plugins/feature/memory-consolidation.js";
 import { createCifPatternsPlugin } from "../plugins/feature/cif-patterns.js";
@@ -100,6 +101,7 @@ const storySummonPlugin = createStorySummonPlugin({
 });
 const storyAppearancePlugin = createStoryAppearancePlugin({ availability: chaldeaOpeningAvailability, publication: repository, factors: repository, commands: commandAuthority.gateway });
 const simpleCombatPlugin = createSimpleCombatPlugin(commandAuthority.gateway);
+const playerNavigationPlugin = createPlayerNavigationPlugin(commandAuthority.gateway);
 const memoryConsolidationPlugin = process.env.PI_PROVIDER && process.env.PI_MODEL
   ? createMemoryConsolidationPlugin({
     sessionId: state.sessionId, jobs: worldJobs, store: repository,
@@ -147,6 +149,7 @@ const platform = await bootstrap(new CordisPlatformAdapter(), {
     { plugin: storySummonPlugin },
     { plugin: storyAppearancePlugin },
     { plugin: simpleCombatPlugin },
+    { plugin: playerNavigationPlugin },
     { plugin: worldSimulationPlugin },
     ...(memoryConsolidationPlugin ? [{ plugin: memoryConsolidationPlugin }] : []),
     ...(cifPatternsPlugin ? [{ plugin: cifPatternsPlugin }] : []),

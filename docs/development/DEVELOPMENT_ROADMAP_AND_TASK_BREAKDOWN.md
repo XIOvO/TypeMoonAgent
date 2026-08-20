@@ -290,6 +290,8 @@ L1、L2、审核、发布和 L3 仍遵守现有证据与人工/策略门控，�
 | E07-N2 | 删除 Runtime 内 BFS/可达策略知识 | boundary cleanup | Runtime 只使用 navigation result |
 | E07-N3 | 增加 provider swap test | alternate map/navigation fixture | 存档事实保持兼容 |
 
+2026-08-20 状态：E07-N1 已完成。`navigation.move` 已作为 public capability 注册；`feature.player-navigation` 将命令适配为既有 move action，保留 Runtime 对当前出口的单边合法性校验。
+
 E07 全部完成后，GameRuntime 不得按 battle_started、chapter_entered、story_summon_opened 等领域事件类型实现业务分支。
 
 ## 11. E08 — Observability 与架构质量
@@ -562,9 +564,9 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4 已完成。下一步进入 E07-N1：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 已完成。下一步进入 E07-N2：
 
-1. 将 player move 统一为 navigation command；
-2. 保持每次只沿一条合法出口移动。
+1. 删除 Runtime 内的 BFS/可达策略知识；
+2. 让 Runtime 只使用 navigation provider 的结果。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。
