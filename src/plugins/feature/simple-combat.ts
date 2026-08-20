@@ -4,10 +4,9 @@ import type { CommandGateway } from "../../core/command-gateway.js";
 import type { CordisGamePluginDefinition } from "../../platform/cordis-platform.js";
 import { COMBAT_RESOLVE_CAPABILITY, isCombatResolveCommand } from "../../protocol/combat-commands.js";
 import type { CommandEnvelope } from "../../protocol/command.js";
+import type { CombatResolveController } from "./combat-resolve.js";
 
-export interface CombatResolveController {
-  execute(command: CommandEnvelope): Promise<ActionResult>;
-}
+export type { CombatResolveController } from "./combat-resolve.js";
 
 /** Compatibility provider: adapts the public combat command to Runtime's current battle lane. */
 export class SimpleCombatResolver implements CombatResolveController {

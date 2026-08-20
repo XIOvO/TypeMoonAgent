@@ -278,7 +278,7 @@ L1、L2、审核、发布和 L3 仍遵守现有证据与人工/策略门控，�
 | E07-C3 | 实现 DummyCombatPlugin | swap-test implementation | 替换时 Kernel 零修改 |
 | E07-C4 | 删除 Runtime 内具体 battle handler | compatibility removal | Kernel import graph 无 combat implementation |
 
-2026-08-20 状态：E07-C1、E07-C2 已完成。`combat.resolve` 已有 public capability definition 和严格的可序列化 command schema，可表达命令式 attack/defend、delegate 与 quick resolve；`feature.simple-combat` 已注册为 reference provider，并复用 Runtime 的确定性结算入口，当前 battle tests 保持通过。
+2026-08-20 状态：E07-C1、E07-C2、E07-C3 已完成。`combat.resolve` 已有 public capability definition 和严格的可序列化 command schema，可表达命令式 attack/defend、delegate 与 quick resolve；`feature.simple-combat` 已注册为 reference provider，并复用 Runtime 的确定性结算入口。`feature.dummy-combat` 以同一 capability 替换 reference provider，验证相同组合仅替换插件即可运行，Kernel 与 Runtime 均无需修改。
 
 ### 10.4 Navigation
 
@@ -562,9 +562,9 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1、E07-C2 已完成。下一步进入 E07-C3：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C3 已完成。下一步进入 E07-C4：
 
-1. 实现 `DummyCombatPlugin` 作为 swap-test implementation；
-2. 验证替换 combat provider 时 Kernel 无需修改。
+1. 删除 Runtime 内的具体 battle handler；
+2. 让 combat.resolve provider 成为唯一战斗入口，并保持领域回归通过。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。

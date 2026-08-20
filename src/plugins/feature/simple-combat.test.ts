@@ -12,6 +12,7 @@ import { createRuntimeCommandAuthoritySystem } from "../system/command-authority
 import { createWorldMapPlugin } from "../system/world-map.js";
 import { CommittedWorldNavigation, createWorldNavigationPlugin } from "../system/world-navigation.js";
 import { createWorldStatePlugin } from "../system/world-state.js";
+import { createDummyCombatPlugin } from "./dummy-combat.js";
 import { createSimpleCombatPlugin, type CombatResolveController } from "./simple-combat.js";
 
 test("SimpleCombatPlugin resolves combat.resolve through the existing deterministic battle lane", async () => {
@@ -35,6 +36,30 @@ test("SimpleCombatPlugin resolves combat.resolve through the existing determinis
     payload: { participation: "command", commands: [{ actorId: "mash", intent: "attack", targetId: "skeleton" }] }, causation: {}, correlationId: "combat:test" });
   assert.deepEqual(result.events.map((event) => event.type), ["battle_round_resolved"]);
   assert.equal(runtime.getState().battle?.enemies.skeleton?.hp, 2);
+  await running.dispose();
+});
+
+test("DummyCombatPlugin replaces combat.resolve without changing Kernel or Runtime", async () => {
+  const state = world();
+  const store = new WorldStateStore(state);
+  const runtime = new GameRuntime(state, {});
+  const commands = createRuntimeCommandAuthoritySystem(runtime);
+  const navigation = new CommittedWorldNavigation(store, exitGraphNavigation);
+  const running = await bootstrap(new CordisPlatformAdapter(), {
+    profileId: "dummy-combat-swap-test",
+    plugins: [
+      { plugin: createWorldStatePlugin(store) },
+      { plugin: createWorldMapPlugin(new StateBackedWorldMap(store)) },
+      { plugin: createWorldNavigationPlugin(navigation) },
+      { plugin: commands.plugin },
+      { plugin: createDummyCombatPlugin(commands.gateway) },
+    ],
+  });
+  const combat = running.get<CombatResolveController>(COMBAT_RESOLVE_CAPABILITY);
+  const result = await combat.execute({ id: "dummy-combat-attack", sessionId: "demo", actorId: "player", type: COMBAT_RESOLVE_CAPABILITY,
+    payload: { participation: "command", commands: [{ actorId: "mash", intent: "attack", targetId: "skeleton" }] }, causation: {}, correlationId: "combat:dummy" });
+  assert.deepEqual(result, { actionId: "dummy-combat-attack", events: [], stateRevision: 0 });
+  assert.equal(runtime.getState().battle?.enemies.skeleton?.hp, 3);
   await running.dispose();
 });
 
