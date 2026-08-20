@@ -319,6 +319,8 @@ E08 从 v0.3 第一天开始，不在最后补做。
 
 2026-08-20 状态：E08-03 已完成。模块规则继续保持 protocol 与 kernel 的单向限制，并移除 `plugins.feature` 对 persistence/system adapter 的许可；world simulation 改为依赖其实际所需的只读 history port。
 
+2026-08-20 状态：E08-04 已完成。架构测试以临时 import 图验证 protocol、kernel、feature 与 persistence adapter 的逆向依赖都会让模块检查器确定性失败。
+
 ## 12. E09 — SDK 与参考插件
 
 目标：证明架构可被项目外开发者使用，而不只是内部目录更整齐。
@@ -574,9 +576,9 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-03 已完成。下一步进入 E08-04：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-04 已完成。下一步进入 E08-05：
 
-1. 添加 import graph architecture test；
-2. 使违反边界的 import 在 CI 中确定性失败。
+1. 添加 event replay fixture；
+2. 从初始状态重放事件并断言得到预期状态。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。

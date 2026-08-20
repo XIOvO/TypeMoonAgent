@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 
-const sourceRoot = resolve("src");
+const sourceRoot = resolve(process.argv[2] ?? "src");
 const allowedDependencies = {
   agent: ["agent", "core", "protocol"],
   agents: ["agent", "agents", "cif", "core", "protocol"],
