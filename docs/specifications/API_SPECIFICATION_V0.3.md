@@ -872,6 +872,8 @@ v0.2-compatible adapter 链路尚未扩展 durable job 的顶层持久化行时�
 
 Trace MAY 记录 ID、Provider、ContextReference、耗时、错误和工具调用摘要，MUST NOT 记录隐藏 Chain-of-Thought 或未授权角色私密上下文。
 
+`TurnTrace` 的最小安全字段为 session/correlation/action/observation/agent-action/command/event IDs、provider ID/model、context reference 的 type/id、耗时和错误码；不得包含角色发言、输入文本、事件 payload、context summary 或 CoT。
+
 ## 22. 版本与兼容策略
 
 ### 22.1 Expand

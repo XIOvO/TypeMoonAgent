@@ -13,6 +13,7 @@ const allowedDependencies = {
   kernel: ["kernel", "protocol"],
   lore: ["lore", "protocol"],
   narrative: ["core", "narrative", "protocol"],
+  observability: ["observability", "protocol"],
   persistence: ["cif", "core", "persistence", "protocol"],
   platform: ["platform", "protocol"],
   /** Stable package facade; it may re-export designated public modules only. */

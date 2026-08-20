@@ -315,6 +315,8 @@ E08 从 v0.3 第一天开始，不在最后补做。
 
 2026-08-20 状态：E08-01 已完成。world tick 链路从事件既有的 player/system causation 派生稳定的 `correlationId`，将其写入 durable job payload，并在 worker 创建 simulation job 时继续传播；不改变旧事件或作业的顶层持久化行形状，以保持历史存档与重放兼容。
 
+2026-08-20 状态：E08-02 已完成。新增内存型 `TurnTrace` 契约与 store，记录关联 ID、provider、context reference 的 type/id、耗时与错误码；不接受或输出文本、payload、context summary 或 CoT。
+
 ## 12. E09 — SDK 与参考插件
 
 目标：证明架构可被项目外开发者使用，而不只是内部目录更整齐。
@@ -570,9 +572,9 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 已完成。下一步进入 E08-02：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-02 已完成。下一步进入 E08-03：
 
-1. 实现 TurnTrace；
-2. 记录 IDs、provider 与 context refs，但不得记录 CoT。
+1. 扩展模块边界检查规则；
+2. 禁止 protocol/kernel/feature/adapter 的反向依赖。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。
