@@ -2,8 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import type {
   ActionResult,
   AgentAction,
-  BattleCommand,
-  BattleDirective,
   BattleState,
   CharacterState,
   RuntimeCharacterIntroductionRequest,
@@ -23,6 +21,7 @@ import type { StoryChapterPackage } from "./worldline.js";
 import type { WorldStatePublisher } from "./world-state.js";
 import type { InteractionCommandHandler } from "./interaction-command-handler.js";
 import type { InteractionExecution } from "./interaction-execution.js";
+import type { CombatActionHandler } from "./combat-action-handler.js";
 import { SessionOperationQueue } from "../kernel/session-operation-queue.js";
 import { IdempotencyRegistry } from "../kernel/idempotency.js";
 import { RuntimeAuthority } from "../kernel/authority.js";
@@ -80,6 +79,7 @@ export class GameRuntime {
     private readonly worldStatePublisher?: WorldStatePublisher,
     private readonly navigation?: NavigationPlanner,
     private readonly interaction?: InteractionCommandHandler,
+    private readonly combat?: CombatActionHandler,
   ) {
     this.agents = asAgentRunnerResolver(agents);
     this.state = { ...state, moment: normalizeGameMoment(state.sessionId, state.moment) };
@@ -104,7 +104,7 @@ export class GameRuntime {
     return this.execute(this.legacyCommand("player.action", action));
   }
 
-  /** Compatibility command facade; all accepted commands still settle in Runtime. */
+  /** Compatibility command facade; Runtime owns validation and commit only. */
   public async execute(command: CommandEnvelope): Promise<ActionResult> {
     switch (command.type) {
       case "player.action": return this.handleOnce(command.id, requestFingerprint(command.payload as object), () => this.handlePlayerActionOnce(command.payload as PlayerAction));
@@ -471,122 +471,13 @@ export class GameRuntime {
     return this.reject(action, "action_requires_resolver");
   }
 
-  /**
-   * First vertical slice of combat. Its rules are intentionally small and
-   * deterministic: it proves the authority boundary, while later combat
-   * modules can replace the individual settlement functions.
-   */
   private resolveBattleAction(action: PlayerAction): ActionResult {
-    const battle = this.state.battle;
-    if (!battle || battle.status !== "active") return this.reject(action, "battle_not_active");
-    const directive = this.readBattleDirective(action.parameters);
-    if (!directive) return this.reject(action, "battle_directive_required");
-
-    if (directive.participation === "command") return this.resolveBattleCommands(action, battle, directive.commands ?? []);
-    if (directive.participation === "delegate") return this.resolveDelegatedBattle(action, battle, directive.delegateTo ?? []);
-    return this.resolveQuickBattle(action, battle);
-  }
-
-  private resolveBattleCommands(action: PlayerAction, battle: BattleState, commands: BattleCommand[]): ActionResult {
-    if (commands.length === 0) return this.reject(action, "battle_commands_required");
-    const changes: Array<Record<string, unknown>> = [];
-    for (const command of commands) {
-      const actorId = command.actorId ?? action.actorId;
-      const actor = battle.allies[actorId];
-      if (!actor || actor.hp <= 0) return this.reject(action, "battle_actor_unavailable");
-      const change = this.applyBattleCommand(battle, actorId, command);
-      if (!change) return this.reject(action, "battle_target_unavailable");
-      changes.push(change);
-      if (battle.status === "resolved") break;
-    }
-    return this.finishBattleTurn(action, battle, "command", changes);
-  }
-
-  private resolveDelegatedBattle(action: PlayerAction, battle: BattleState, requestedIds: string[]): ActionResult {
-    const delegatedIds = requestedIds.length > 0 ? requestedIds : Object.keys(battle.allies).filter((id) => id !== action.actorId);
-    const actors = delegatedIds.filter((id) => battle.allies[id]?.hp > 0);
-    if (actors.length === 0) return this.reject(action, "no_available_companion");
-    const changes: Array<Record<string, unknown>> = [];
-    for (const actorId of actors) {
-      const targetId = this.firstLivingEnemy(battle);
-      if (!targetId) break;
-      const change = this.applyBattleCommand(battle, actorId, { intent: "attack", targetId });
-      if (change) changes.push(change);
-    }
-    return this.finishBattleTurn(action, battle, "delegate", changes);
-  }
-
-  private resolveQuickBattle(action: PlayerAction, battle: BattleState): ActionResult {
-    const allyHp = Object.values(battle.allies).reduce((total, combatant) => total + Math.max(0, combatant.hp), 0);
-    const enemyHp = Object.values(battle.enemies).reduce((total, combatant) => total + Math.max(0, combatant.hp), 0);
-    const outcome = allyHp >= enemyHp ? "victory" : "withdrawn";
-    if (outcome === "victory") {
-      for (const enemy of Object.values(battle.enemies)) enemy.hp = 0;
-    }
-    battle.status = "resolved";
-    battle.outcome = outcome;
-    const round = this.append("battle_round_resolved", {
-      battleId: battle.id, turn: battle.turn, participation: "quick_resolve", prototype: true,
-      changes: [{ outcome, note: "Prototype quick resolver; no detailed exchange was simulated." }],
-    }, action, undefined, this.battleRecipients(battle, action.actorId));
-    const finished = this.append("battle_finished", { battleId: battle.id, locationId: battle.locationId, outcome, objective: battle.objective }, action, undefined, this.battleRecipients(battle, action.actorId));
-    return this.finish(action.id, [round, finished]);
-  }
-
-  private applyBattleCommand(battle: BattleState, actorId: string, command: BattleCommand): Record<string, unknown> | undefined {
-    if (command.intent === "attack") {
-      const targetId = command.targetId ?? this.firstLivingEnemy(battle);
-      const target = targetId ? battle.enemies[targetId] : undefined;
-      if (!target || target.hp <= 0) return undefined;
-      target.hp = Math.max(0, target.hp - 1);
-      return { actorId, intent: "attack", targetId, damage: 1, targetHp: target.hp };
-    }
-    if (command.intent === "defend") {
-      const actor = battle.allies[actorId];
-      if (!actor.states.includes("guarded")) actor.states.push("guarded");
-      return { actorId, intent: "defend", state: "guarded" };
-    }
-    if (command.intent === "retreat") {
-      battle.status = "resolved";
-      battle.outcome = "withdrawn";
-      return { actorId, intent: "retreat", outcome: "withdrawn" };
-    }
-    if (command.intent === "analyze") return { actorId, intent: "analyze", targetId: command.targetId ?? this.firstLivingEnemy(battle) };
-    return { actorId, intent: command.intent, state: "queued_for_future_combat_module" };
-  }
-
-  private finishBattleTurn(action: PlayerAction, battle: BattleState, participation: BattleDirective["participation"], changes: Array<Record<string, unknown>>): ActionResult {
-    if (this.firstLivingEnemy(battle) === undefined) {
-      battle.status = "resolved";
-      battle.outcome = "victory";
-    }
-    const turn = battle.turn;
-    if (battle.status === "active") battle.turn += 1;
-    const events = [this.append("battle_round_resolved", {
-      battleId: battle.id, turn, participation, prototype: true, changes,
-    }, action, undefined, this.battleRecipients(battle, action.actorId))];
-    if (battle.status === "resolved") events.push(this.append("battle_finished", {
-      battleId: battle.id, locationId: battle.locationId, outcome: battle.outcome, objective: battle.objective,
-    }, action, undefined, this.battleRecipients(battle, action.actorId)));
+    if (!this.combat) return this.reject(action, "combat_provider_unavailable");
+    const resolution = this.combat.resolve({ state: this.getState(), action });
+    if (!resolution.accepted) return this.reject(action, resolution.reason);
+    this.state.battle = structuredClone(resolution.battle);
+    const events = resolution.events.map((event) => this.append(event.type as GameEvent["type"], event.payload as Record<string, unknown>, action, undefined, event.recipients ?? []));
     return this.finish(action.id, events);
-  }
-
-  private readBattleDirective(parameters: Record<string, unknown> | undefined): BattleDirective | undefined {
-    const participation = parameters?.participation;
-    if (participation !== "command" && participation !== "delegate" && participation !== "quick_resolve") return undefined;
-    const commands = Array.isArray(parameters?.commands) ? parameters.commands.flatMap((value) => {
-      if (!value || typeof value !== "object") return [];
-      const candidate = value as Record<string, unknown>;
-      const intent = candidate.intent;
-      if (intent !== "attack" && intent !== "defend" && intent !== "skill" && intent !== "item" && intent !== "retreat" && intent !== "analyze") return [];
-      return [{ actorId: typeof candidate.actorId === "string" ? candidate.actorId : undefined, intent, targetId: typeof candidate.targetId === "string" ? candidate.targetId : undefined } satisfies BattleCommand];
-    }) : undefined;
-    const delegateTo = Array.isArray(parameters?.delegateTo) ? parameters.delegateTo.filter((value): value is string => typeof value === "string") : undefined;
-    return { participation, commands, delegateTo };
-  }
-
-  private firstLivingEnemy(battle: BattleState): string | undefined {
-    return Object.values(battle.enemies).find((combatant) => combatant.hp > 0)?.id;
   }
 
   private validateBattleSide(combatants: readonly import("./contracts.js").BattleCombatant[], locationId: string, allies: boolean): Record<string, import("./contracts.js").BattleCombatant> {

@@ -37,6 +37,7 @@ import { createStoryChaptersPlugin, WORLD_STORY_CHAPTERS_CAPABILITY, type StoryC
 import { createStorySummonPlugin } from "../plugins/feature/story-summon.js";
 import { createStoryAppearancePlugin } from "../plugins/feature/story-appearance.js";
 import { createSimpleCombatPlugin } from "../plugins/feature/simple-combat.js";
+import { SimpleCombatActionHandler } from "../plugins/feature/simple-combat-rules.js";
 import { chaldeaOpeningAvailability } from "../story/availability.js";
 import { createMemoryConsolidationPlugin } from "../plugins/feature/memory-consolidation.js";
 import { createCifPatternsPlugin } from "../plugins/feature/cif-patterns.js";
@@ -76,6 +77,7 @@ const patternPublisher = new CifPatternPublisher(repository);
 const lore = new SqliteLoreRepository(process.env.LORE_DB_PATH ?? "lore.sqlite");
 const mashAgent = createMashAgent(contextBuilder);
 const interactionHandler = new DurableInteractionCommandHandler(repository, repository);
+const combatHandler = new SimpleCombatActionHandler();
 const runtime = new GameRuntime(
   state, { mash: mashAgent }, persistence.turnCommitter,
   undefined,
@@ -84,6 +86,7 @@ const runtime = new GameRuntime(
   worldStateStore,
   worldNavigation,
   interactionHandler,
+  combatHandler,
 );
 const commandAuthority = createRuntimeCommandAuthoritySystem(runtime);
 const storyChaptersPlugin = createStoryChaptersPlugin(chapters, chapterCatalog, commandAuthority.gateway);

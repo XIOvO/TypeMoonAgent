@@ -14,11 +14,12 @@ import { CommittedWorldNavigation, createWorldNavigationPlugin } from "../system
 import { createWorldStatePlugin } from "../system/world-state.js";
 import { createDummyCombatPlugin } from "./dummy-combat.js";
 import { createSimpleCombatPlugin, type CombatResolveController } from "./simple-combat.js";
+import { SimpleCombatActionHandler } from "./simple-combat-rules.js";
 
 test("SimpleCombatPlugin resolves combat.resolve through the existing deterministic battle lane", async () => {
   const state = world();
   const store = new WorldStateStore(state);
-  const runtime = new GameRuntime(state, {});
+  const runtime = new GameRuntime(state, {}, undefined, undefined, 0, undefined, undefined, undefined, undefined, new SimpleCombatActionHandler());
   const commands = createRuntimeCommandAuthoritySystem(runtime);
   const navigation = new CommittedWorldNavigation(store, exitGraphNavigation);
   const running = await bootstrap(new CordisPlatformAdapter(), {

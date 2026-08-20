@@ -8,6 +8,7 @@ import { SqliteCifRepository } from "./cif/sqlite-repository.js";
 import { SqliteTurnCommitter } from "./persistence/turn-commit.js";
 import { SqliteDurableJobQueue } from "./plugins/system/durable-jobs.js";
 import { DurableInteractionCommandHandler } from "./plugins/feature/interaction-coordinator.js";
+import { SimpleCombatActionHandler } from "./plugins/feature/simple-combat-rules.js";
 
 const state = (): GameState => ({
   sessionId: "demo", revision: 0,
@@ -234,7 +235,7 @@ test("Runtime keeps dialogue, open world actions, and combat as distinct input l
   const combat = await runtime.handlePlayerAction({
     id: "pa-combat", sessionId: "demo", actorId: "player", type: "combat", parameters: { action: "attack", targetId: "mash" },
   });
-  assert.equal(combat.events[0]?.payload.reason, "battle_not_active");
+  assert.equal(combat.events[0]?.payload.reason, "combat_provider_unavailable");
 
   const freeform = await runtime.handlePlayerAction({
     id: "pa-freeform", sessionId: "demo", actorId: "player", type: "action",
@@ -303,7 +304,7 @@ test("Runtime rejects an invalid persisted game moment before accepting input", 
 test("Runtime settles a concrete battle command and exposes a compact battle state", async () => {
   const initial = state();
   initial.battle = battle();
-  const runtime = new GameRuntime(initial, { mash: new MashStub() });
+  const runtime = new GameRuntime(initial, { mash: new MashStub() }, undefined, undefined, 0, undefined, undefined, undefined, undefined, new SimpleCombatActionHandler());
   const result = await runtime.handlePlayerAction({
     id: "battle-command", sessionId: "demo", actorId: "player", type: "combat",
     parameters: { participation: "command", commands: [{ actorId: "mash", intent: "attack", targetId: "skeleton" }] },
@@ -316,7 +317,7 @@ test("Runtime settles a concrete battle command and exposes a compact battle sta
 test("Runtime lets the player delegate a round or explicitly quick-resolve a battle", async () => {
   const delegatedState = state();
   delegatedState.battle = battle();
-  const delegatedRuntime = new GameRuntime(delegatedState, { mash: new MashStub() });
+  const delegatedRuntime = new GameRuntime(delegatedState, { mash: new MashStub() }, undefined, undefined, 0, undefined, undefined, undefined, undefined, new SimpleCombatActionHandler());
   const delegated = await delegatedRuntime.handlePlayerAction({
     id: "battle-delegate", sessionId: "demo", actorId: "player", type: "combat",
     parameters: { participation: "delegate", delegateTo: ["mash"] },
@@ -326,7 +327,7 @@ test("Runtime lets the player delegate a round or explicitly quick-resolve a bat
 
   const quickState = state();
   quickState.battle = battle();
-  const quickRuntime = new GameRuntime(quickState, { mash: new MashStub() });
+  const quickRuntime = new GameRuntime(quickState, { mash: new MashStub() }, undefined, undefined, 0, undefined, undefined, undefined, undefined, new SimpleCombatActionHandler());
   const quick = await quickRuntime.handlePlayerAction({
     id: "battle-quick", sessionId: "demo", actorId: "player", type: "combat",
     parameters: { participation: "quick_resolve" },
