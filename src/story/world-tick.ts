@@ -94,7 +94,7 @@ export class WorldTickScheduler implements EventTaskScheduler {
       const moment = event.moment;
       this.jobs.enqueue({
         id: randomUUID(), sessionId: event.sessionId, kind: "world.tick", dedupeKey: `${moment.timelineId}:${moment.tick}`,
-        payload: { timelineId: moment.timelineId, tick: moment.tick, sourceEventId: event.id }, status: "pending", attempts: 0,
+        payload: { timelineId: moment.timelineId, tick: moment.tick, sourceEventId: event.id, correlationId: correlationId(event) }, status: "pending", attempts: 0,
         maxAttempts: 3, availableAt: event.createdAt, createdAt: event.createdAt,
       });
     }
@@ -129,7 +129,7 @@ export class WorldTickWorker {
       this.jobs.transaction(() => {
         for (const candidate of candidates) this.jobs.enqueue({
           id: randomUUID(), sessionId, kind: "world.simulation", dedupeKey: `${input.moment.timelineId}:${input.moment.tick}:${candidate.actorId}`,
-          payload: { timelineId: input.moment.timelineId, tick: input.moment.tick, sourceEventId: input.sourceEventId, actorId: candidate.actorId, reason: candidate.reason, ...(candidate.targetLocationId ? { targetLocationId: candidate.targetLocationId } : {}) },
+          payload: { timelineId: input.moment.timelineId, tick: input.moment.tick, sourceEventId: input.sourceEventId, correlationId: correlationId(job), actorId: candidate.actorId, reason: candidate.reason, ...(candidate.targetLocationId ? { targetLocationId: candidate.targetLocationId } : {}) },
           status: "pending", attempts: 0, maxAttempts: 3, availableAt: now.toISOString(), createdAt: now.toISOString(),
         });
         this.jobs.complete(job.id, workerId, now.toISOString());
@@ -191,6 +191,13 @@ export class WorldSimulationWorker {
     while (await this.processNext(sessionId)) processed += 1;
     return processed;
   }
+}
+
+function correlationId(input: { sessionId: string; id: string; causation?: { playerActionId?: string; systemActionId?: string }; payload?: Record<string, unknown> }): string {
+  const existing = input.payload?.correlationId;
+  if (typeof existing === "string" && existing) return existing;
+  const actionId = input.causation?.playerActionId ?? input.causation?.systemActionId;
+  return actionId ? `action:${input.sessionId}:${actionId}` : `event:${input.sessionId}:${input.id}`;
 }
 
 function tickInput(job: DurableJob): WorldTickInput {

@@ -868,6 +868,8 @@ Target correlationId 必须贯穿：
       -> GameEvent
       -> DurableJob
 
+v0.2-compatible adapter 链路尚未扩展 durable job 的顶层持久化行时，MUST 将关联标识保存在已持久化的 job payload 中；事件可由既有 `playerActionId` 或 `systemActionId` 派生稳定标识。迁移不得破坏历史事件重放。
+
 Trace MAY 记录 ID、Provider、ContextReference、耗时、错误和工具调用摘要，MUST NOT 记录隐藏 Chain-of-Thought 或未授权角色私密上下文。
 
 ## 22. 版本与兼容策略

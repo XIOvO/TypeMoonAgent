@@ -33,7 +33,7 @@ test("a confirmed wait schedules one durable world tick and deterministic simula
   const worker = new WorldTickWorker(jobs(repository), repository, { select: () => [{ actorId: "mash", reason: "present_in_scene" }, { actorId: "mash", reason: "duplicate" }] });
   assert.equal(await worker.processNext("demo", new Date("2026-08-15T00:01:00.000Z")), true);
   const simulation = repository.claimDurableJob({ sessionId: "demo", workerId: "test", kind: "world.simulation", now: "2026-08-15T00:01:00.000Z", leaseExpiresBefore: "2026-08-14T23:56:00.000Z" });
-  assert.deepEqual(simulation?.payload, { timelineId: "session:demo", tick: 1, sourceEventId: "wait-event", actorId: "mash", reason: "present_in_scene" });
+  assert.deepEqual(simulation?.payload, { timelineId: "session:demo", tick: 1, sourceEventId: "wait-event", correlationId: "action:demo:wait-1", actorId: "mash", reason: "present_in_scene" });
   repository.close();
 });
 
