@@ -389,6 +389,10 @@ Current：`feature.story-chapters` 提供 `story.enter`，`feature.story-summon`
 
 `story.appearance` 是 feature-owned controller capability，不接受 PlayerAction。它先依据已发布初始化和当前可用性生成候选，并在引入前重新验证；Runtime 只提交已通过该策略的引入操作，不读取 CIF 发布态。
 
+### 9.2 Combat Resolve Command Schema
+
+`combat.resolve` 是 public capability。其 command payload 仅表达一个既有战斗的参与方式：`command` 携带至少一条 action（包括 `attack` 与 `defend`），`delegate` 可选择指定代理角色，`quick_resolve` 不携带额外字段。C1 只发布可序列化 schema 与 capability definition；在 provider 于后续阶段注册前，不得把该协议隐式转交给 Runtime。
+
 ## 10. GameEvent Protocol
 
 ### 10.1 Current v0.2

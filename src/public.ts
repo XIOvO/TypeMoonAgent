@@ -14,6 +14,7 @@ export * from "./core/interaction-coordinator.js";
 export * from "./core/interaction-command-handler.js";
 export * from "./core/interaction-execution.js";
 export * from "./protocol/story-commands.js";
+export * from "./protocol/combat-commands.js";
 export * from "./agents/pi-agent-runner.js";
 export * from "./agents/pi-agent-provider.js";
 export * from "./agents/pi-cif-draft-generator.js";

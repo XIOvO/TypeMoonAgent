@@ -2,6 +2,7 @@ export * from "./action.js";
 export * from "./agent-action.js";
 export * from "./capability.js";
 export * from "./command.js";
+export * from "./combat-commands.js";
 export * from "./story-commands.js";
 export * from "./errors.js";
 export * from "./event.js";
