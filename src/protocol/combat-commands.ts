@@ -17,7 +17,7 @@ export type CombatResolveCommandPayload =
   | { participation: "delegate"; delegateTo?: string[] }
   | { participation: "quick_resolve" };
 
-export type CombatResolveCommand = CommandEnvelope<CombatResolveCommandPayload> & { type: typeof COMBAT_RESOLVE_CAPABILITY };
+export type CombatResolveCommand = CommandEnvelope<CombatResolveCommandPayload> & { type: typeof COMBAT_RESOLVE_CAPABILITY; actorId: string };
 
 export const COMBAT_RESOLVE_COMMAND_SCHEMA = {
   oneOf: [
@@ -47,7 +47,7 @@ export const COMBAT_RESOLVE_CAPABILITY_DEFINITION: CapabilityDefinition = {
 };
 
 export function isCombatResolveCommand(command: CommandEnvelope): command is CombatResolveCommand {
-  if (command.type !== COMBAT_RESOLVE_CAPABILITY || !record(command.payload)) return false;
+  if (command.type !== COMBAT_RESOLVE_CAPABILITY || !text(command.actorId) || !record(command.payload)) return false;
   const payload = command.payload;
   if (payload.participation === "command") return fields(payload, ["participation", "commands"]) && Array.isArray(payload.commands) && payload.commands.length > 0 && payload.commands.every(isAction);
   if (payload.participation === "delegate") return fields(payload, ["participation", "delegateTo"]) && (payload.delegateTo === undefined || ids(payload.delegateTo));

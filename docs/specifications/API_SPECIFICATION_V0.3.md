@@ -391,7 +391,7 @@ Current：`feature.story-chapters` 提供 `story.enter`，`feature.story-summon`
 
 ### 9.2 Combat Resolve Command Schema
 
-`combat.resolve` 是 public capability。其 command payload 仅表达一个既有战斗的参与方式：`command` 携带至少一条 action（包括 `attack` 与 `defend`），`delegate` 可选择指定代理角色，`quick_resolve` 不携带额外字段。C1 只发布可序列化 schema 与 capability definition；在 provider 于后续阶段注册前，不得把该协议隐式转交给 Runtime。
+`combat.resolve` 是 public capability。Command envelope MUST 携带非空 `actorId`；其 payload 仅表达一个既有战斗的参与方式：`command` 携带至少一条 action（包括 `attack` 与 `defend`），`delegate` 可选择指定代理角色，`quick_resolve` 不携带额外字段。`feature.simple-combat` 是当前 reference provider：它验证协议后转换为既有 combat PlayerAction，复用 Runtime 的确定性结算规则。
 
 ## 10. GameEvent Protocol
 

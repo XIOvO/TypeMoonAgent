@@ -68,6 +68,7 @@ export * from "./plugins/feature/world-simulation.js";
 export * from "./plugins/feature/story-chapters.js";
 export * from "./plugins/feature/story-summon.js";
 export * from "./plugins/feature/story-appearance.js";
+export * from "./plugins/feature/simple-combat.js";
 export * from "./plugins/feature/memory-consolidation.js";
 export * from "./plugins/feature/cif-patterns.js";
 export * from "./plugins/feature/memory-evolution-policy.js";
