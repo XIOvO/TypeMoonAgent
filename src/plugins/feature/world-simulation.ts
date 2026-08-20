@@ -10,8 +10,8 @@ import {
   WorldTickScheduler,
   WorldTickWorker,
   type CharacterRuntimeStateStore,
+  type WorldStateHistory,
 } from "../../story/world-tick.js";
-import type { WorldEventHistory } from "../system/persistence.js";
 
 export const WORLD_SIMULATION_CAPABILITY = "world.simulation";
 
@@ -23,7 +23,7 @@ export interface WorldSimulationPluginDependencies {
   sessionId: string;
   playerId: string;
   jobs: DurableJobQueue;
-  history: WorldEventHistory;
+  history: WorldStateHistory;
   states: CharacterRuntimeStateStore;
   commands: CommandGateway;
   navigation: NavigationPlanner;

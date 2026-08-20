@@ -18,7 +18,7 @@ const allowedDependencies = {
   platform: ["platform", "protocol"],
   /** Stable package facade; it may re-export designated public modules only. */
   public: ["agent", "agents", "api", "cif", "config", "core", "lore", "narrative", "persistence", "platform", "plugins.feature", "plugins.system", "protocol", "story"],
-  "plugins.feature": ["cif", "core", "persistence", "platform", "plugins.feature", "plugins.system", "protocol", "story"],
+  "plugins.feature": ["cif", "core", "platform", "plugins.feature", "protocol", "story"],
   "plugins.system": ["cif", "core", "persistence", "platform", "plugins.system", "protocol"],
   protocol: ["protocol"],
   story: ["cif", "core", "protocol", "story"],

@@ -317,6 +317,8 @@ E08 从 v0.3 第一天开始，不在最后补做。
 
 2026-08-20 状态：E08-02 已完成。新增内存型 `TurnTrace` 契约与 store，记录关联 ID、provider、context reference 的 type/id、耗时与错误码；不接受或输出文本、payload、context summary 或 CoT。
 
+2026-08-20 状态：E08-03 已完成。模块规则继续保持 protocol 与 kernel 的单向限制，并移除 `plugins.feature` 对 persistence/system adapter 的许可；world simulation 改为依赖其实际所需的只读 history port。
+
 ## 12. E09 — SDK 与参考插件
 
 目标：证明架构可被项目外开发者使用，而不只是内部目录更整齐。
@@ -572,9 +574,9 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-02 已完成。下一步进入 E08-03：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-03 已完成。下一步进入 E08-04：
 
-1. 扩展模块边界检查规则；
-2. 禁止 protocol/kernel/feature/adapter 的反向依赖。
+1. 添加 import graph architecture test；
+2. 使违反边界的 import 在 CI 中确定性失败。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。
