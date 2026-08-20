@@ -325,6 +325,8 @@ E08 从 v0.3 第一天开始，不在最后补做。
 
 2026-08-20 状态：E08-06 已完成。swap fixture 以同一 Kernel/Runtime 装配分别挂载 Simple 与 Dummy combat provider，证明替换 capability provider 不需要 Kernel 修改。
 
+2026-08-20 状态：E08-07 已完成。Pi 与 Rule provider 使用同一 `npc` binding 和 Runtime 装配分别运行，证明 agent provider 可在不改变 Runtime 的前提下替换。
+
 ## 12. E09 — SDK 与参考插件
 
 目标：证明架构可被项目外开发者使用，而不只是内部目录更整齐。
@@ -580,9 +582,9 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-06 已完成。下一步进入 E08-07：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-07 已完成。下一步进入 E08-08：
 
-1. 添加 Pi/Rule agent binding swap fixture；
-2. 验证替换 agent provider 时 Runtime 保持不变。
+1. 添加 trace 与 projection redaction test；
+2. 确保 hidden CIF/CoT 不进入 trace 或 UI。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。

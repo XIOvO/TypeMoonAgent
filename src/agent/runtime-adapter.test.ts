@@ -27,3 +27,21 @@ test("Runtime selects Pi or Rule only by character binding configuration", async
     assert.equal(result.events[1]?.payload.text, expected);
   }
 });
+
+test("Pi and Rule providers swap under the same binding and Runtime composition", async () => {
+  const rule = await dialogueWith(new RuleBasedAgentProvider({ agentProfile: "npc", utterance: "Rule swap" }));
+  const pi = await dialogueWith(new PiAgentProvider({
+    run: async (observation: Observation) => ({ id: "pi:swap", sessionId: observation.sessionId, actorId: observation.recipientId, observationId: observation.id, utterance: "Pi swap", requests: [] } as AgentAction),
+    runCombined: async () => { throw new Error("not_used"); },
+  }, { agentProfile: "npc" }));
+  assert.equal(rule, "Rule swap");
+  assert.equal(pi, "Pi swap");
+});
+
+async function dialogueWith(provider: Parameters<AgentRegistry["register"]>[0]): Promise<unknown> {
+  const registry = new AgentRegistry();
+  registry.register(provider);
+  const runtime = new GameRuntime(world(), new RegistryAgentRunnerResolver(registry, { mash: { agentProfile: "npc" } }));
+  const result = await runtime.handlePlayerAction({ id: "player:swap", sessionId: "demo", actorId: "player", type: "dialogue", content: "Hello", targetIds: ["mash"] });
+  return result.events[1]?.payload.text;
+}
