@@ -53,7 +53,12 @@ export class SqliteTurnCommitter implements TurnCommitter {
   }
 
   private grantDialogueBond(turn: PendingTurnCommit): void {
-    const playerSpeech = turn.events.find((event) => event.type === "player_spoke" && typeof event.payload.targetId === "string");
+    const reply = turn.events.find((event) => event.type === "character_spoke"
+      && typeof event.causation.playerActionId === "string"
+      && typeof event.payload.characterId === "string");
+    const playerSpeech = turn.events.find((event) => event.type === "player_spoke" && typeof event.payload.targetId === "string")
+      ?? (reply ? this.repository.listObjectiveHistory({ sessionId: turn.sessionId, types: ["player_spoke"], limit: 1_000 })
+        .find((event) => event.causation.playerActionId === reply.causation.playerActionId && event.payload.targetId === reply.payload.characterId) : undefined);
     if (!playerSpeech) return;
     const playerId = typeof playerSpeech.payload.characterId === "string" ? playerSpeech.payload.characterId : undefined;
     const characterId = typeof playerSpeech.payload.targetId === "string" ? playerSpeech.payload.targetId : undefined;
@@ -62,8 +67,10 @@ export class SqliteTurnCommitter implements TurnCommitter {
       && event.causation.playerActionId === playerSpeech.causation.playerActionId
       && event.payload.characterId === characterId);
     if (!replied) return;
-    this.repository.grantBond({ actionId: turn.actionId, sessionId: turn.sessionId, playerId, characterId, points: 1,
-      sourceEventIds: turn.events.filter((event) => event.causation.playerActionId === playerSpeech.causation.playerActionId).map((event) => event.id),
+    const sourceEventIds = new Set(turn.events.filter((event) => event.causation.playerActionId === playerSpeech.causation.playerActionId).map((event) => event.id));
+    sourceEventIds.add(playerSpeech.id);
+    this.repository.grantBond({ actionId: playerSpeech.causation.playerActionId ?? turn.actionId, sessionId: turn.sessionId, playerId, characterId, points: 1,
+      sourceEventIds: [...sourceEventIds],
       createdAt: playerSpeech.createdAt });
   }
 }

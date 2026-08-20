@@ -1,13 +1,51 @@
-/** Core game protocol: the three player-facing lanes remain unified in GameRuntime. */
-export type ActionType = "dialogue" | "action" | "combat";
+import type { GameMoment } from "../protocol/time.js";
+import type {
+  ActionResult as ProtocolActionResult,
+  ActionType,
+  BuiltinWorldActionIntent,
+  ParsedPlayerIntent,
+  PlayerAction,
+  RawPlayerInput,
+} from "../protocol/action.js";
+import type { LegacyObservation } from "../protocol/observation.js";
+import type { LegacyAgentAction, LegacyMoveActionRequest } from "../protocol/agent-action.js";
+import type { LegacyGameEvent } from "../protocol/event.js";
+import type { LegacyGameState } from "../protocol/state.js";
 
-/**
- * `parameters.intent` on a PlayerAction is deliberately a string rather than
- * an enum. It is an optional routing hint, not a closed catalogue of what a
- * player is allowed to attempt. The Runtime only settles intents for which it
- * owns an explicit rule.
- */
-export type BuiltinWorldActionIntent = "move" | "observe" | "wait" | "inspect" | "interact";
+export type { GameMoment } from "../protocol/time.js";
+export type {
+  ActionType,
+  BuiltinWorldActionIntent,
+  ParsedPlayerIntent,
+  PlayerAction,
+  RawPlayerInput,
+} from "../protocol/action.js";
+export type {
+  ContextReference,
+  Observation as ProtocolObservation,
+  ObservationConstraints,
+  SceneObservation,
+  VisibleEntity,
+  VisibleIncomingAction,
+} from "../protocol/observation.js";
+export type {
+  ActionRequest as ProtocolActionRequest,
+  ActionRequestAdaptation,
+  AgentAction as ProtocolAgentAction,
+  AgentActionMetadata,
+  AgentUtterance,
+} from "../protocol/agent-action.js";
+export type {
+  CommandCausation,
+  CommandEnvelope,
+  CommandRejection,
+  CommandResult,
+  ProposedEvent,
+  ProposedJob,
+  StateMutationProposal,
+} from "../protocol/command.js";
+export type { EventCausation, EventSource, GameEvent as ProtocolGameEvent } from "../protocol/event.js";
+export type { State as ProtocolState } from "../protocol/state.js";
 
 /** Small, extensible vocabulary for the first deterministic combat resolver. */
 export type CombatActionKind = "attack" | "defend" | "skill" | "item" | "retreat" | "analyze";
@@ -47,62 +85,11 @@ export type EventType =
   | "story_summon_opened"
   | "action_rejected";
 
-/**
- * Authoritative narrative time. It is independent from wall-clock timestamps,
- * which remain operational metadata for persistence and worker leases.
- */
-export interface GameMoment {
-  timelineId: string;
-  tick: number;
-  /** Optional game-owned display/calendar data; Runtime does not calculate it. */
-  calendar?: Record<string, string | number | boolean>;
-}
+/** Compatibility binding for consumers of the v0.2 Observation shape. */
+export type Observation = LegacyObservation<CharacterState>;
 
-export interface PlayerAction {
-  id: string;
-  sessionId: string;
-  actorId: string;
-  type: ActionType;
-  content?: string;
-  targetIds?: string[];
-  parameters?: Record<string, unknown>;
-}
-
-/** Raw player text is not itself a claim about what became true in the world. */
-export interface RawPlayerInput {
-  id: string;
-  sessionId: string;
-  actorId: string;
-  content: string;
-  targetIds?: string[];
-  /** `auto` must be handled by an interpreter; it is never silently treated as dialogue. */
-  mode: ActionType | "auto";
-  parameters?: Record<string, unknown>;
-}
-
-export type ParsedPlayerIntent =
-  | { kind: "resolved"; action: PlayerAction; privateThought?: string }
-  | { kind: "needs_interpreter"; reason: "ambiguous_freeform_input" };
-
-export interface Observation {
-  id: string;
-  sessionId: string;
-  recipientId: string;
-  triggerActionId: string;
-  scene: { id: string; visibleEntityIds: string[] };
-  incomingAction: Pick<PlayerAction, "actorId" | "type" | "content" | "parameters">;
-  selfState: CharacterState;
-  constraints: string[];
-}
-
-export interface AgentAction {
-  id: string;
-  sessionId: string;
-  actorId: string;
-  observationId: string;
-  utterance?: string;
-  requests: ActionRequest[];
-}
+/** Compatibility binding for the v0.2 Agent output accepted by Runtime. */
+export type AgentAction = LegacyAgentAction;
 
 /** One-call proposal: player intent remains a candidate until Runtime settles it. */
 export interface CombinedTurnProposal {
@@ -118,24 +105,11 @@ export interface CombinedTurnProposal {
   character: AgentAction;
 }
 
-export interface ActionRequest {
-  type: "move";
-  actorId: string;
-  destination: string;
-}
+/** Compatibility binding for the v0.2 move request accepted by Runtime. */
+export type ActionRequest = LegacyMoveActionRequest;
 
-export interface GameEvent {
-  id: string;
-  sessionId: string;
-  createdAt: string;
-  sequence: number;
-  type: EventType;
-  payload: Record<string, unknown>;
-  causation: { playerActionId?: string; systemActionId?: string; agentActionId?: string };
-  stateRevision: number;
-  /** Missing only on events written before the game-time migration. */
-  moment?: GameMoment;
-}
+/** Compatibility binding for the v0.2 persisted event shape. */
+export type GameEvent = LegacyGameEvent<Record<string, unknown>, EventType>;
 
 export interface CharacterState {
   id: string;
@@ -143,18 +117,13 @@ export interface CharacterState {
   mood: "calm" | "alert";
 }
 
-export interface GameState {
-  sessionId: string;
-  revision: number;
-  /** Missing only on old saves; Runtime initializes it as `session:<id>`, tick 0. */
-  moment?: GameMoment;
-  characters: Record<string, CharacterState>;
-  locations: Record<string, { id: string; exits: string[] }>;
-  /** Optional during migration; all new scenes should provide an object map. */
-  objects?: Record<string, SceneObject>;
-  /** Absent outside combat. This is objective Runtime state, not prompt text. */
-  battle?: BattleState;
-}
+/** Compatibility binding for the current combined world and battle state. */
+export type GameState = LegacyGameState<
+  CharacterState,
+  { id: string; exits: string[] },
+  SceneObject,
+  BattleState
+>;
 
 export interface BattleCombatant {
   id: string;
@@ -195,11 +164,8 @@ export interface SceneObject {
   state?: Record<string, "open" | "closed" | "locked" | "active" | "inactive" | boolean | string>;
 }
 
-export interface ActionResult {
-  actionId: string;
-  events: GameEvent[];
-  stateRevision: number;
-}
+/** Compatibility binding for the v0.2 Runtime event representation. */
+export type ActionResult = ProtocolActionResult<GameEvent>;
 
 /** Player-only material: never part of a GameEvent or NPC Observation. */
 export interface PlayerPrivateNote {

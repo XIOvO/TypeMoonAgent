@@ -12,6 +12,7 @@ import type {
   RuntimeCharacterInitiativeRequest,
   RuntimeEventListener,
 } from "./runtime.js";
+import type { CommandEnvelope } from "../protocol/command.js";
 
 /**
  * The only authority-facing contract consumed by API and future game plugins.
@@ -20,6 +21,7 @@ import type {
 export interface CommandGateway {
   getState(): Readonly<GameState>;
   subscribe(listener: RuntimeEventListener): () => void;
+  execute(command: CommandEnvelope): Promise<ActionResult>;
   handlePlayerAction(action: PlayerAction): Promise<ActionResult>;
   handleRawPlayerInput(input: RawPlayerInput): Promise<ActionResult>;
   enterChapter(request: RuntimeChapterEntryRequest): Promise<ActionResult>;

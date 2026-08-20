@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Service, type Context, type Plugin } from "@deepseek-ai/cordis";
 import { bootstrap } from "./bootstrap.js";
-import { CordisPlatformAdapter, type CordisGamePluginDefinition } from "./cordis-platform.js";
+import { CordisPlatformAdapter, createCordisPluginSetupContext, type CordisGamePluginDefinition } from "./cordis-platform.js";
 import { CompositionValidationError, type GameComposition, validateComposition } from "./contracts.js";
+import type { CapabilityId, PluginId } from "../protocol/ids.js";
 
 function plugin(id: string, implementation: Plugin, options: Partial<CordisGamePluginDefinition["manifest"]> = {}): CordisGamePluginDefinition {
   return {
@@ -40,6 +41,82 @@ test("Cordis platform mounts declared capabilities and disposes registered effec
   await running.dispose();
   assert.equal(disposed, true);
   assert.throws(() => running.get("test.greeter"), /disposed/);
+});
+
+test("game plugin setup context delegates cleanup to the Cordis plugin lifecycle", async () => {
+  let disposed = false;
+  const pluginId = "test.setup-context" as PluginId;
+  const definition = plugin("test.setup-context", (ctx: Context) => {
+    const setup = createCordisPluginSetupContext(pluginId, ctx);
+    setup.effect(() => () => { disposed = true; }, "test cleanup");
+  });
+
+  const running = await bootstrap(new CordisPlatformAdapter(), {
+    profileId: "setup-context",
+    plugins: [{ plugin: definition }],
+  });
+  assert.equal(disposed, false);
+  await running.dispose();
+  assert.equal(disposed, true);
+});
+
+test("Cordis adapter mounts a versioned v2 manifest through the existing lifecycle", async () => {
+  let disposed = false;
+  const provider = {
+    manifest: {
+      id: "system.v2-provider" as PluginId,
+      version: "1.0.0",
+      apiVersion: "0.3.0",
+      configVersion: 1,
+      type: "system" as const,
+      provides: [{ id: "test.v2-provider" as CapabilityId, version: "1.0.0", scope: "public" as const }],
+    },
+    bindings: [{ capabilityId: "test.v2-provider" as CapabilityId, serviceKey: "v2Provider" }],
+    implementation: (ctx: Context) => {
+      class Provider extends Service { public value(): string { return "ready"; } }
+      new Provider(ctx, "v2Provider");
+      ctx.effect(() => () => { disposed = true; });
+    },
+  };
+  const running = await new CordisPlatformAdapter().mountV2({ profileId: "v2", plugins: [{ plugin: provider }] });
+  assert.equal(running.get<{ value(): string }>("test.v2-provider").value(), "ready");
+  await running.dispose();
+  assert.equal(disposed, true);
+});
+
+test("Cordis v2 adapter rejects incompatible and system-only capability requirements", async () => {
+  const systemProvider = {
+    manifest: {
+      id: "system.provider" as PluginId,
+      version: "1.0.0",
+      apiVersion: "0.3.0",
+      configVersion: 1,
+      type: "system" as const,
+      provides: [{ id: "test.system" as CapabilityId, version: "1.0.0", scope: "system" as const }],
+    },
+    bindings: [{ capabilityId: "test.system" as CapabilityId, serviceKey: "systemProvider" }],
+    implementation: () => undefined,
+  };
+  const feature = {
+    manifest: {
+      id: "feature.consumer" as PluginId,
+      version: "1.0.0",
+      apiVersion: "0.3.0",
+      configVersion: 1,
+      type: "feature" as const,
+      requires: [{ id: "test.system" as CapabilityId, version: "^2.0.0" }],
+    },
+    implementation: () => undefined,
+  };
+  await assert.rejects(
+    new CordisPlatformAdapter().mountV2({ profileId: "v2-rejection", plugins: [{ plugin: systemProvider }, { plugin: feature }] }),
+    /capability_version_mismatch/,
+  );
+  feature.manifest.requires = [{ id: "test.system" as CapabilityId, version: "^1.0.0" }];
+  await assert.rejects(
+    new CordisPlatformAdapter().mountV2({ profileId: "v2-rejection", plugins: [{ plugin: systemProvider }, { plugin: feature }] }),
+    /plugin_permission_denied/,
+  );
 });
 
 test("composition validation rejects missing requirements and conflicting providers before mounting", () => {

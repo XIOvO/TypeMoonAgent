@@ -1,4 +1,4 @@
-import type { CharacterIntroductionAuthorizer, GameRuntime } from "../core/runtime.js";
+import type { CommandGateway } from "../core/command-gateway.js";
 import type { CharacterAppearanceFactors } from "../cif/types.js";
 import type { CharacterAppearanceRecommendation, CharacterAvailability, StorySignal } from "./types.js";
 
@@ -7,17 +7,22 @@ export interface CharacterAppearanceFactorsProvider {
   getAppearanceFactors(sessionId: string, characterId: string): CharacterAppearanceFactors | undefined;
 }
 
+/** Policy boundary: only a published initialization may enter the appearance pool. */
+export interface CharacterAppearancePublicationPolicy {
+  hasPublishedInitialization(sessionId: string, characterId: string): boolean;
+}
+
 /** Deterministic coordinator: recommends candidates from data, never invents a beat. */
 export class StoryDirector {
   public constructor(
     private readonly availability: readonly CharacterAvailability[],
-    private readonly authorizer: CharacterIntroductionAuthorizer,
+    private readonly publication: CharacterAppearancePublicationPolicy,
     private readonly factors?: CharacterAppearanceFactorsProvider,
   ) {}
 
-  public recommend(runtime: GameRuntime, signal: StorySignal): CharacterAppearanceRecommendation[] {
-    if (signal.sessionId !== runtime.getState().sessionId) throw new Error("story_signal_session_mismatch");
-    const world = runtime.getState();
+  public recommend(commands: Pick<CommandGateway, "getState">, signal: StorySignal): CharacterAppearanceRecommendation[] {
+    if (signal.sessionId !== commands.getState().sessionId) throw new Error("story_signal_session_mismatch");
+    const world = commands.getState();
     const locationId = signal.locationId ?? (signal.actorId ? world.characters[signal.actorId]?.locationId : undefined);
     if (!locationId) return [];
     const charactersAtLocation = Object.values(world.characters).filter((character) => character.locationId === locationId);
@@ -26,18 +31,18 @@ export class StoryDirector {
       .filter((rule) => rule.storyPointIds.includes(signal.storyPointId))
       .filter((rule) => rule.signalTypes.includes(signal.type) && rule.locations.includes(locationId))
       .filter((rule) => !world.characters[rule.characterId])
-      .filter((rule) => this.authorizer.hasPublishedInitialization(signal.sessionId, rule.characterId))
+      .filter((rule) => this.publication.hasPublishedInitialization(signal.sessionId, rule.characterId))
       .map((rule) => ({ rule, factors: this.factors?.getAppearanceFactors(signal.sessionId, rule.characterId) }))
       .filter(({ factors }) => factors?.availability !== "blocked")
       .map(({ rule, factors }) => this.toRecommendation(rule, locationId, playerAlone, signal, factors))
       .sort((left, right) => right.score - left.score || left.characterId.localeCompare(right.characterId));
   }
 
-  /** A selected recommendation still crosses Runtime's full authority gate. */
-  public async introduce(runtime: GameRuntime, signal: StorySignal, recommendation: CharacterAppearanceRecommendation): Promise<void> {
-    const current = this.recommend(runtime, signal).find((candidate) => candidate.availabilityId === recommendation.availabilityId && candidate.characterId === recommendation.characterId);
+  /** A selected recommendation crosses the command gateway only after policy revalidation. */
+  public async introduce(commands: Pick<CommandGateway, "getState" | "introduceCharacter">, signal: StorySignal, recommendation: CharacterAppearanceRecommendation): Promise<void> {
+    const current = this.recommend(commands, signal).find((candidate) => candidate.availabilityId === recommendation.availabilityId && candidate.characterId === recommendation.characterId);
     if (!current) throw new Error("story_recommendation_no_longer_available");
-    await runtime.introduceCharacter({
+    await commands.introduceCharacter({
       id: `story:${signal.id}:introduce:${current.characterId}`, sessionId: signal.sessionId, characterId: current.characterId,
       locationId: current.locationId, reason: current.introductionReason, mood: "calm",
     });

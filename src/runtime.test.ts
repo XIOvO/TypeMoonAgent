@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentRunner } from "./core/agent-runner.js";
 import type { AgentAction, BattleState, CombinedTurnProposal, GameState, Observation, RawPlayerInput } from "./core/contracts.js";
+import { InteractionExecutionWorker } from "./core/interaction-execution.js";
 import { GameRuntime } from "./core/runtime.js";
 import { SqliteCifRepository } from "./cif/sqlite-repository.js";
 import { SqliteTurnCommitter } from "./persistence/turn-commit.js";
+import { SqliteDurableJobQueue } from "./plugins/system/durable-jobs.js";
+import { DurableInteractionCommandHandler } from "./plugins/feature/interaction-coordinator.js";
 
 const state = (): GameState => ({
   sessionId: "demo", revision: 0,
@@ -49,7 +52,7 @@ class CombinedMashStub extends MashStub {
 
 test("Runtime uses the injected interaction resolver before waking a dialogue Agent", async () => {
   const runtime = new GameRuntime(state(), { mash: new MashStub() }, undefined, undefined, 0, undefined, undefined, undefined, {
-    resolve: ({ requestedTargetId }) => requestedTargetId ?? "mash",
+    resolveTarget: ({ requestedTargetId }) => requestedTargetId ?? "mash",
   });
   const result = await runtime.handlePlayerAction({ id: "coordinated-dialogue", sessionId: "demo", actorId: "player", type: "dialogue", content: "Can you help?" });
   assert.deepEqual(result.events.map((event) => event.type), ["player_spoke", "character_spoke", "character_moved"]);
@@ -118,6 +121,54 @@ test("Runtime publishes one durable turn batch after AgentAction is settled", as
   await runtime.handlePlayerAction({ id: "pa-commit", sessionId: "demo", actorId: "player", type: "dialogue", content: "去食堂吧", targetIds: ["mash"] });
   assert.equal(repository.countObjectiveHistory("demo"), 3);
   assert.equal(repository.listEvidence("demo", "player", 5).length, 3);
+  repository.close();
+});
+
+test("Runtime queues ordinary dialogue once and the execution worker settles its reply", async () => {
+  const repository = new SqliteCifRepository();
+  let calls = 0;
+  const agent: AgentRunner = { run: async (observation) => {
+    calls += 1;
+    return { id: "queued-reply", sessionId: observation.sessionId, actorId: "mash", observationId: observation.id, utterance: "我在，前辈。", requests: [] };
+  } };
+  const runtime = new GameRuntime(state(), { mash: agent }, new SqliteTurnCommitter(repository), undefined, 0, undefined, undefined, undefined, new DurableInteractionCommandHandler(repository, repository));
+  const action = { id: "queued-dialogue", sessionId: "demo", actorId: "player", type: "dialogue" as const, content: "玛修，在吗？", targetIds: ["mash"] };
+
+  const planned = await runtime.handlePlayerAction(action);
+  assert.deepEqual(planned.events.map((event) => event.type), ["player_spoke"]);
+  assert.equal(calls, 0);
+  assert.equal(repository.getInteractionExecution("demo", action.id)?.status, "planned");
+  assert.equal(repository.getInteractionExecution("demo", action.id)?.leadCharacterId, "mash");
+  assert.deepEqual(await runtime.handlePlayerAction(action), planned);
+  assert.equal(calls, 0);
+
+  const worker = new InteractionExecutionWorker(new SqliteDurableJobQueue(repository), repository, runtime);
+  assert.equal(await worker.processNext("demo"), true);
+  assert.equal(calls, 1);
+  assert.equal(repository.getInteractionExecution("demo", action.id)?.status, "completed");
+  assert.deepEqual(runtime.getEvents().map((event) => event.type), ["player_spoke", "character_spoke"]);
+  assert.equal(runtime.getEvents()[1]?.causation.playerActionId, action.id);
+  assert.equal(repository.getBond("demo", "player", "mash")?.totalPoints, 1);
+  repository.close();
+});
+
+test("interaction execution returns to its retryable state after a transient Agent failure", async () => {
+  const repository = new SqliteCifRepository();
+  let calls = 0;
+  const agent: AgentRunner = { run: async (observation) => {
+    calls += 1;
+    if (calls === 1) throw new Error("temporary_agent_failure");
+    return { id: "retried-reply", sessionId: observation.sessionId, actorId: "mash", observationId: observation.id, utterance: "重试成功。", requests: [] };
+  } };
+  const runtime = new GameRuntime(state(), { mash: agent }, new SqliteTurnCommitter(repository), undefined, 0, undefined, undefined, undefined, new DurableInteractionCommandHandler(repository, repository));
+  await runtime.handlePlayerAction({ id: "retry-dialogue", sessionId: "demo", actorId: "player", type: "dialogue", content: "再试一次。", targetIds: ["mash"] });
+  const worker = new InteractionExecutionWorker(new SqliteDurableJobQueue(repository), repository, runtime);
+  const firstAttempt = new Date(Date.now() + 60_000);
+  assert.equal(await worker.processNext("demo", firstAttempt), true);
+  assert.equal(repository.getInteractionExecution("demo", "retry-dialogue")?.status, "retry_wait");
+  assert.equal(await worker.processNext("demo", new Date(firstAttempt.getTime() + 1_001)), true);
+  assert.equal(repository.getInteractionExecution("demo", "retry-dialogue")?.status, "completed");
+  assert.equal(calls, 2);
   repository.close();
 });
 
@@ -301,4 +352,12 @@ test("Runtime inspects visible scene objects and changes a door state determinis
     id: "inspect-hidden", sessionId: "demo", actorId: "player", type: "action", parameters: { intent: "inspect", targetId: "hidden_note" },
   });
   assert.equal(hidden.events[0]?.payload.reason, "inspect_target_unavailable");
+});
+
+test("Runtime execute settles a legacy player command through the same path", async () => {
+  const runtime = new GameRuntime(state(), { mash: new MashStub() });
+  const action = { id: "execute-dialogue", sessionId: "demo", actorId: "player", type: "dialogue" as const, content: "你好", targetIds: ["mash"] };
+  const result = await runtime.execute({ id: action.id, sessionId: action.sessionId, type: "player.action", actorId: action.actorId, payload: action, causation: {}, correlationId: "test:execute-dialogue" });
+  assert.deepEqual(result.events.map((event) => event.type), ["player_spoke", "character_spoke", "character_moved"]);
+  await assert.rejects(runtime.execute({ id: "missing", sessionId: "demo", type: "unknown", payload: {}, causation: {}, correlationId: "test:missing" }), /command_not_found/);
 });

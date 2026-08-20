@@ -17,8 +17,9 @@ import { createSqlitePersistenceSystem } from "../system/persistence.js";
 import { createWorldMapPlugin } from "../system/world-map.js";
 import { CommittedWorldNavigation, createWorldNavigationPlugin } from "../system/world-navigation.js";
 import { createWorldStatePlugin } from "../system/world-state.js";
-import { WORLD_STORY_CHAPTERS_CAPABILITY, createStoryChaptersPlugin, type StoryChapterController } from "./story-chapters.js";
-import { WORLD_STORY_SUMMON_CAPABILITY, createStorySummonPlugin, type StorySummonController } from "./story-summon.js";
+import { STORY_ENTER_CAPABILITY, STORY_PROGRESS_CAPABILITY } from "../../protocol/story-commands.js";
+import { WORLD_STORY_CHAPTERS_CAPABILITY, createStoryChaptersPlugin, type StoryChapterController, type StoryEnterController } from "./story-chapters.js";
+import { WORLD_STORY_SUMMON_CAPABILITY, createStorySummonPlugin, type StoryProgressController, type StorySummonController } from "./story-summon.js";
 
 test("feature story-summon owns chapter jobs and removes its event scheduler on disposal", async () => {
   const repository = new SqliteCifRepository();
@@ -52,6 +53,10 @@ test("feature story-summon owns chapter jobs and removes its event scheduler on 
   const running = await bootstrap(new CordisPlatformAdapter(), composition);
   const story = running.get<StoryChapterController>(WORLD_STORY_CHAPTERS_CAPABILITY);
   const summon = running.get<StorySummonController>(WORLD_STORY_SUMMON_CAPABILITY);
+  const enter = running.get<StoryEnterController>(STORY_ENTER_CAPABILITY);
+  const progress = running.get<StoryProgressController>(STORY_PROGRESS_CAPABILITY);
+  assert.equal(typeof enter.execute, "function");
+  assert.equal(typeof progress.execute, "function");
 
   await story.enter({ id: "enter-opening", sessionId: "demo", playerId: "player", packageId: chapter.packageId, mode: "new" });
   await summon.drain("demo");

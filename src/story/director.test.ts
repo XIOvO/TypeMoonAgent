@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GameRuntime } from "../core/runtime.js";
+import { RuntimeCommandGateway } from "../plugins/system/command-authority.js";
 import { chaldeaOpeningAvailability } from "./availability.js";
 import { StoryDirector } from "./director.js";
 
@@ -12,28 +13,29 @@ const world = () => ({
 
 test("Chaldea opening recommends published Mash and Runtime introduces the selected candidate once", async () => {
   const authorizer = { hasPublishedInitialization: (_sessionId: string, id: string) => id === "mash" };
-  const runtime = new GameRuntime(world(), {}, undefined, authorizer);
+  const runtime = new GameRuntime(world(), {});
+  const commands = new RuntimeCommandGateway(runtime);
   const director = new StoryDirector(chaldeaOpeningAvailability, authorizer);
   const signal = { id: "opening-1", sessionId: "demo", storyPointId: "chaldea:arrival", type: "opening_confirmed" as const, actorId: "player" };
-  const [recommendation] = director.recommend(runtime, signal);
+  const [recommendation] = director.recommend(commands, signal);
   assert.equal(recommendation?.characterId, "mash");
   assert.equal(recommendation?.score, 1);
-  await director.introduce(runtime, signal, recommendation!);
+  await director.introduce(commands, signal, recommendation!);
   assert.equal(runtime.getState().characters.mash?.locationId, "chaldea_hall");
-  assert.deepEqual(director.recommend(runtime, signal), []);
+  assert.deepEqual(director.recommend(commands, signal), []);
   assert.equal(runtime.getEvents().filter((event) => event.type === "character_introduced").length, 1);
 });
 
 test("Chaldea opening does not recommend an unpublished character", () => {
   const authorizer = { hasPublishedInitialization: () => false };
-  const runtime = new GameRuntime(world(), {}, undefined, authorizer);
-  assert.deepEqual(new StoryDirector(chaldeaOpeningAvailability, authorizer).recommend(runtime, { id: "opening-1", sessionId: "demo", storyPointId: "chaldea:arrival", type: "opening_confirmed" }), []);
+  const runtime = new GameRuntime(world(), {});
+  assert.deepEqual(new StoryDirector(chaldeaOpeningAvailability, authorizer).recommend(new RuntimeCommandGateway(runtime), { id: "opening-1", sessionId: "demo", storyPointId: "chaldea:arrival", type: "opening_confirmed" }), []);
   assert.equal(runtime.getState().characters.mash, undefined);
 });
 
 test("CIF/history appearance factors adjust a canon-qualified recommendation", () => {
   const authorizer = { hasPublishedInitialization: () => true };
-  const runtime = new GameRuntime(world(), {}, undefined, authorizer);
+  const runtime = new GameRuntime(world(), {});
   const factors = {
     getAppearanceFactors: () => ({
       sessionId: "demo", characterId: "mash", activeGoals: ["protect_player"],
@@ -42,7 +44,7 @@ test("CIF/history appearance factors adjust a canon-qualified recommendation", (
     }),
   };
   const director = new StoryDirector(chaldeaOpeningAvailability, authorizer, factors);
-  const [recommendation] = director.recommend(runtime, {
+  const [recommendation] = director.recommend(new RuntimeCommandGateway(runtime), {
     id: "danger-1", sessionId: "demo", storyPointId: "chaldea:arrival", type: "opening_confirmed",
     actorId: "player", tags: ["player_in_danger"],
   });
@@ -54,12 +56,12 @@ test("CIF/history appearance factors adjust a canon-qualified recommendation", (
 
 test("a blocked character is not recommended even when canon-qualified", () => {
   const authorizer = { hasPublishedInitialization: () => true };
-  const runtime = new GameRuntime(world(), {}, undefined, authorizer);
+  const runtime = new GameRuntime(world(), {});
   const factors = { getAppearanceFactors: () => ({
     sessionId: "demo", characterId: "mash", activeGoals: [], responseWeights: {}, relationshipWeights: {},
     availability: "blocked" as const, updatedAt: "2026-08-12T00:00:00Z",
   }) };
-  assert.deepEqual(new StoryDirector(chaldeaOpeningAvailability, authorizer, factors).recommend(runtime, {
+  assert.deepEqual(new StoryDirector(chaldeaOpeningAvailability, authorizer, factors).recommend(new RuntimeCommandGateway(runtime), {
     id: "opening-1", sessionId: "demo", storyPointId: "chaldea:arrival", type: "opening_confirmed",
   }), []);
 });

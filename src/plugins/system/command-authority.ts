@@ -15,6 +15,7 @@ export class RuntimeCommandGateway implements CommandGateway {
   public constructor(private readonly runtime: GameRuntime) {}
   public getState() { return this.runtime.getState(); }
   public subscribe(listener: Parameters<CommandGateway["subscribe"]>[0]) { return this.runtime.subscribe(listener); }
+  public execute(command: Parameters<CommandGateway["execute"]>[0]) { return this.runtime.execute(command); }
   public handlePlayerAction(action: Parameters<CommandGateway["handlePlayerAction"]>[0]) { return this.runtime.handlePlayerAction(action); }
   public handleRawPlayerInput(input: Parameters<CommandGateway["handleRawPlayerInput"]>[0]) { return this.runtime.handleRawPlayerInput(input); }
   public enterChapter(request: Parameters<CommandGateway["enterChapter"]>[0]) { return this.runtime.enterChapter(request); }
@@ -28,6 +29,7 @@ class RuntimeCommandGatewayService extends Service implements CommandGateway {
   public constructor(ctx: Context, private readonly gateway: CommandGateway) { super(ctx, "worldCommandGateway"); }
   public getState() { return this.gateway.getState(); }
   public subscribe(listener: Parameters<CommandGateway["subscribe"]>[0]) { return this.gateway.subscribe(listener); }
+  public execute(command: Parameters<CommandGateway["execute"]>[0]) { return this.gateway.execute(command); }
   public handlePlayerAction(action: Parameters<CommandGateway["handlePlayerAction"]>[0]) { return this.gateway.handlePlayerAction(action); }
   public handleRawPlayerInput(input: Parameters<CommandGateway["handleRawPlayerInput"]>[0]) { return this.gateway.handleRawPlayerInput(input); }
   public enterChapter(request: Parameters<CommandGateway["enterChapter"]>[0]) { return this.gateway.enterChapter(request); }

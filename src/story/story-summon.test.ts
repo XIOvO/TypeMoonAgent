@@ -8,8 +8,10 @@ import { SqliteCifRepository } from "../cif/sqlite-repository.js";
 import { SqliteTurnCommitter } from "../persistence/turn-commit.js";
 import { BranchWorldlineProjector } from "./branch-projector.js";
 import { StaticStoryChapterCatalog, StoryChapterPackageService } from "./chapter-packages.js";
-import { StorySummonScheduler, StorySummonWorker } from "./story-summon.js";
+import { StorySummonCommandHandler, StorySummonScheduler, StorySummonWorker } from "./story-summon.js";
 import { SqliteDurableJobQueue } from "../plugins/system/durable-jobs.js";
+import { StoryCommandDispatcher } from "./command-dispatcher.js";
+import { STORY_PROGRESS_CAPABILITY } from "../protocol/story-commands.js";
 
 const state = (): GameState => ({
   sessionId: "demo", revision: 0, moment: { timelineId: "session:demo", tick: 0 },
@@ -42,7 +44,8 @@ test("an entered chapter summons its configured opener and advances the same nod
   const scheduler = new StorySummonScheduler(repository, catalog, jobs);
   const runtime = new GameRuntime(state(), { mash: new MashOpener() }, new SqliteTurnCommitter(repository, undefined, worldline, scheduler), undefined, 0, chapters);
   await runtime.enterChapter({ id: "enter", sessionId: "demo", playerId: "player", mode: "new", chapter });
-  const worker = new StorySummonWorker(jobs, repository, runtime);
+  const progress = new StorySummonCommandHandler(repository, runtime);
+  const worker = new StorySummonWorker(jobs, new StoryCommandDispatcher({ [STORY_PROGRESS_CAPABILITY]: (command) => progress.execute(command) }));
   assert.equal(await worker.processNext("demo", new Date("2030-08-15T00:01:00.000Z")), true);
   assert.deepEqual(runtime.getEvents().map((event) => event.type), ["chapter_entered", "character_spoke", "story_summon_opened"]);
   assert.deepEqual(repository.getBranchProgress("demo", "player", "main", "opening"), {

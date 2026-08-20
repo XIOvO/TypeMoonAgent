@@ -10,6 +10,50 @@ import {
   findCapabilityProvider,
   validateComposition,
 } from "./contracts.js";
+import type { PluginEffect, PluginSetupContext } from "./plugin-context.js";
+import type { CapabilityId, PluginId } from "../protocol/ids.js";
+import { CapabilityRegistry } from "./capability-registry.js";
+import { isCapabilityVersionCompatible } from "./capability-version.js";
+import type { PluginManifestV2 } from "./plugin-manifest.js";
+
+/**
+ * Cordis-backed implementation of the game plugin setup boundary.
+ *
+ * It intentionally delegates effect ownership to Cordis; this adapter does
+ * not keep a parallel cleanup registry.
+ */
+export function createCordisPluginSetupContext(pluginId: PluginId, context: Context): PluginSetupContext {
+  return {
+    pluginId,
+    effect(effect: PluginEffect, label?: string) {
+      return context.effect(effect, label);
+    },
+  };
+}
+
+/** Host-only mapping for a v2 capability to the existing Cordis service name. */
+export interface CordisCapabilityBinding {
+  capabilityId: CapabilityId;
+  serviceKey: string;
+}
+
+/** A v2 game manifest paired with a Cordis implementation and host bindings. */
+export interface CordisPluginDefinitionV2<Config = unknown> {
+  manifest: PluginManifestV2;
+  implementation: Plugin<Config>;
+  bindings?: readonly CordisCapabilityBinding[];
+}
+
+export interface CordisPluginEntryV2 {
+  plugin: CordisPluginDefinitionV2;
+  config?: unknown;
+  disabled?: boolean;
+}
+
+export interface CordisCompositionV2 {
+  profileId: string;
+  plugins: readonly CordisPluginEntryV2[];
+}
 
 /** A Game Plugin Protocol definition implemented with the currently selected platform. */
 export interface CordisGamePluginDefinition<Config = unknown> extends GamePluginDefinition<Plugin<Config>> {}
@@ -19,6 +63,8 @@ export interface CordisGamePluginDefinition<Config = unknown> extends GamePlugin
  * keeping all game plugins portable at the protocol boundary.
  */
 export class CordisPlatformAdapter implements PluginPlatform {
+  public constructor(public readonly capabilities = new CapabilityRegistry()) {}
+
   public async mount(composition: GameComposition): Promise<RunningComposition> {
     return this.createManager(composition);
   }
@@ -26,6 +72,97 @@ export class CordisPlatformAdapter implements PluginPlatform {
   public async createManager(composition: GameComposition): Promise<PluginManager> {
     return CordisPluginManager.create(composition);
   }
+
+  /**
+   * Validates the game-owned v2 contract, then reuses the existing Cordis
+   * manager and lifecycle rather than introducing a second plugin runtime.
+   */
+  public async mountV2(composition: CordisCompositionV2): Promise<RunningComposition> {
+    validateCordisCompositionV2(composition);
+    const active = composition.plugins.filter((entry) => !entry.disabled);
+    const running = await this.mount({
+      profileId: composition.profileId,
+      plugins: composition.plugins.map((entry) => ({
+        config: entry.config,
+        disabled: entry.disabled,
+        plugin: {
+          implementation: entry.plugin.implementation,
+          manifest: {
+            id: entry.plugin.manifest.id,
+            version: entry.plugin.manifest.version,
+            configVersion: entry.plugin.manifest.configVersion,
+            requires: entry.plugin.manifest.requires?.map((requirement) => requirement.id),
+            provides: entry.plugin.manifest.provides?.map((capability) => ({
+              id: capability.id,
+              serviceKey: bindingFor(entry.plugin, capability.id),
+              scope: capability.scope,
+            })),
+            ownsEvents: entry.plugin.manifest.ownsEvents?.map((event) => event.namespace),
+            ownsJobs: entry.plugin.manifest.ownsJobs,
+          },
+        },
+      })),
+    });
+    const registered: Array<{ pluginId: PluginId; capabilityId: CapabilityId }> = [];
+    try {
+      for (const entry of active) {
+        for (const definition of entry.plugin.manifest.provides ?? []) {
+          this.capabilities.register(entry.plugin.manifest.id, {
+            definition,
+            implementation: running.get(definition.id),
+          });
+          registered.push({ pluginId: entry.plugin.manifest.id, capabilityId: definition.id });
+        }
+      }
+    } catch (error) {
+      for (const registration of registered.reverse()) {
+        this.capabilities.unregister(registration.pluginId, registration.capabilityId);
+      }
+      await running.dispose();
+      throw error;
+    }
+
+    let disposed = false;
+    return {
+      get: <T>(capability: string): T => this.capabilities.resolve<T>({ id: capability as CapabilityId }, "system"),
+      dispose: async (): Promise<void> => {
+        if (disposed) return;
+        disposed = true;
+        for (const registration of registered.reverse()) {
+          this.capabilities.unregister(registration.pluginId, registration.capabilityId);
+        }
+        await running.dispose();
+      },
+    };
+  }
+}
+
+export function validateCordisCompositionV2(composition: CordisCompositionV2): void {
+  const active = composition.plugins.filter((entry) => !entry.disabled);
+  const providers = new Map<CapabilityId, { plugin: CordisPluginDefinitionV2; version: string; scope: "public" | "system" }>();
+  for (const entry of active) {
+    const { manifest } = entry.plugin;
+    if (!manifest.id || !manifest.version || !manifest.apiVersion) throw new Error("plugin_manifest_invalid");
+    for (const capability of manifest.provides ?? []) {
+      if (providers.has(capability.id)) throw new Error("capability_duplicate_provider");
+      bindingFor(entry.plugin, capability.id);
+      providers.set(capability.id, { plugin: entry.plugin, version: capability.version, scope: capability.scope });
+    }
+  }
+  for (const entry of active) {
+    for (const requirement of entry.plugin.manifest.requires ?? []) {
+      const provider = providers.get(requirement.id);
+      if (!provider) throw new Error("capability_not_found");
+      if (!isCapabilityVersionCompatible(provider.version, requirement.version)) throw new Error("capability_version_mismatch");
+      if (provider.scope === "system" && entry.plugin.manifest.type !== "system") throw new Error("plugin_permission_denied");
+    }
+  }
+}
+
+function bindingFor(plugin: CordisPluginDefinitionV2, capabilityId: CapabilityId): string {
+  const serviceKey = plugin.bindings?.find((binding) => binding.capabilityId === capabilityId)?.serviceKey;
+  if (!serviceKey) throw new Error("cordis_capability_binding_missing");
+  return serviceKey;
 }
 
 /**

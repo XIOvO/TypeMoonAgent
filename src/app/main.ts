@@ -35,13 +35,14 @@ import { CommittedWorldNavigation, createWorldNavigationPlugin } from "../plugin
 import { createWorldSimulationPlugin } from "../plugins/feature/world-simulation.js";
 import { createStoryChaptersPlugin, WORLD_STORY_CHAPTERS_CAPABILITY, type StoryChapterController } from "../plugins/feature/story-chapters.js";
 import { createStorySummonPlugin } from "../plugins/feature/story-summon.js";
+import { createStoryAppearancePlugin } from "../plugins/feature/story-appearance.js";
+import { chaldeaOpeningAvailability } from "../story/availability.js";
 import { createMemoryConsolidationPlugin } from "../plugins/feature/memory-consolidation.js";
 import { createCifPatternsPlugin } from "../plugins/feature/cif-patterns.js";
 import { createCifPublicationPlugin } from "../plugins/feature/cif-publication.js";
 import { createMemoryEvolutionPolicyPlugin } from "../plugins/feature/memory-evolution-policy.js";
 import { createSceneLifecyclePlugin } from "../plugins/feature/scene-lifecycle.js";
-import { createInteractionCoordinatorPlugin } from "../plugins/feature/interaction-coordinator.js";
-import { SameSceneInteractionTargetResolver } from "../core/interaction-coordinator.js";
+import { createInteractionCoordinatorPlugin, DurableInteractionCommandHandler } from "../plugins/feature/interaction-coordinator.js";
 
 class DemoMashAgent implements AgentRunner {
   public async run(observation: Observation): Promise<AgentAction> {
@@ -70,16 +71,18 @@ if (!repository.getStoryContext(state.sessionId)) worldline.initialize({
 });
 const persistence = createSqlitePersistenceSystem(repository, { eventTasks: eventTaskRegistry, worldline });
 const contextBuilder = new CharacterContextBuilder(repository);
+const patternPublisher = new CifPatternPublisher(repository);
 const lore = new SqliteLoreRepository(process.env.LORE_DB_PATH ?? "lore.sqlite");
 const mashAgent = createMashAgent(contextBuilder);
+const interactionHandler = new DurableInteractionCommandHandler(repository, repository);
 const runtime = new GameRuntime(
   state, { mash: mashAgent }, persistence.turnCommitter,
-  { hasPublishedInitialization: (sessionId, characterId) => repository.hasPublishedInitialization(sessionId, characterId) },
+  undefined,
   repository.nextObjectiveSequence("demo") - 1,
   chapters,
   worldStateStore,
   worldNavigation,
-  new SameSceneInteractionTargetResolver(repository),
+  interactionHandler,
 );
 const commandAuthority = createRuntimeCommandAuthoritySystem(runtime);
 const storyChaptersPlugin = createStoryChaptersPlugin(chapters, chapterCatalog, commandAuthority.gateway);
@@ -91,6 +94,7 @@ const storySummonPlugin = createStorySummonPlugin({
   commands: commandAuthority.gateway,
   eventTasks: eventTaskRegistry,
 });
+const storyAppearancePlugin = createStoryAppearancePlugin({ availability: chaldeaOpeningAvailability, publication: repository, factors: repository, commands: commandAuthority.gateway });
 const memoryConsolidationPlugin = process.env.PI_PROVIDER && process.env.PI_MODEL
   ? createMemoryConsolidationPlugin({
     sessionId: state.sessionId, jobs: worldJobs, store: repository,
@@ -103,16 +107,16 @@ const cifPatternsPlugin = process.env.PI_PROVIDER && process.env.PI_MODEL
     sessionId: state.sessionId, jobs: worldJobs, store: repository,
     generator: new PiPatternConsolidationGenerator({ provider: process.env.PI_PROVIDER, modelId: process.env.PI_MODEL, apiKey: process.env.PI_API_KEY }),
     auditor: new PiPatternAuditor({ provider: process.env.PI_PROVIDER, modelId: process.env.PI_MODEL, apiKey: process.env.PI_API_KEY }),
-    publisher: new CifPatternPublisher(repository),
+    publisher: patternPublisher,
     commands: commandAuthority.gateway,
   })
   : undefined;
-const cifPublicationPlugin = createCifPublicationPlugin(repository);
+const cifPublicationPlugin = createCifPublicationPlugin(repository, patternPublisher);
 const memoryEvolutionPolicyPlugin = cifPatternsPlugin
   ? createMemoryEvolutionPolicyPlugin({ sessionId: state.sessionId, jobs: worldJobs, store: repository, commands: commandAuthority.gateway, characterIds: () => Object.keys(commandAuthority.gateway.getState().characters) })
   : undefined;
 const sceneLifecyclePlugin = createSceneLifecyclePlugin({ sessionId: state.sessionId, playerId: "player", jobs: worldJobs, store: repository, commands: commandAuthority.gateway, eventTasks: eventTaskRegistry });
-const interactionCoordinatorPlugin = createInteractionCoordinatorPlugin({ sessionId: state.sessionId, playerId: "player", jobs: worldJobs, world: worldStateStore, states: repository, store: repository, commands: commandAuthority.gateway, eventTasks: eventTaskRegistry });
+const interactionCoordinatorPlugin = createInteractionCoordinatorPlugin({ sessionId: state.sessionId, playerId: "player", jobs: worldJobs, world: worldStateStore, states: repository, store: repository, handler: interactionHandler, commands: commandAuthority.gateway, eventTasks: eventTaskRegistry });
 const worldSimulationPlugin = createWorldSimulationPlugin({
   sessionId: state.sessionId,
   playerId: "player",
@@ -136,6 +140,7 @@ const platform = await bootstrap(new CordisPlatformAdapter(), {
     { plugin: interactionCoordinatorPlugin },
     { plugin: storyChaptersPlugin },
     { plugin: storySummonPlugin },
+    { plugin: storyAppearancePlugin },
     { plugin: worldSimulationPlugin },
     ...(memoryConsolidationPlugin ? [{ plugin: memoryConsolidationPlugin }] : []),
     ...(cifPatternsPlugin ? [{ plugin: cifPatternsPlugin }] : []),

@@ -3,25 +3,33 @@ import { dirname, relative, resolve, sep } from "node:path";
 
 const sourceRoot = resolve("src");
 const allowedDependencies = {
-  agents: ["agents", "cif", "core"],
-  api: ["api", "cif", "core", "narrative"],
-  app: ["agents", "api", "app", "cif", "core", "lore", "narrative", "persistence", "platform", "plugins", "story"],
-  cif: ["cif", "core", "lore"],
-  core: ["core", "persistence"],
-  lore: ["lore"],
-  narrative: ["core", "narrative"],
-  platform: ["platform"],
-  plugins: ["cif", "core", "persistence", "platform", "plugins", "story"],
-  persistence: ["cif", "core", "persistence"],
-  story: ["cif", "core", "story"],
+  agent: ["agent", "core", "protocol"],
+  agents: ["agent", "agents", "cif", "core", "protocol"],
+  api: ["api", "cif", "core", "narrative", "protocol"],
+  app: ["agents", "api", "app", "cif", "core", "lore", "narrative", "persistence", "platform", "plugins.feature", "plugins.system", "protocol", "story"],
+  cif: ["cif", "core", "lore", "protocol"],
+  config: ["config", "platform", "protocol"],
+  core: ["core", "kernel", "persistence", "protocol"],
+  kernel: ["kernel", "protocol"],
+  lore: ["lore", "protocol"],
+  narrative: ["core", "narrative", "protocol"],
+  persistence: ["cif", "core", "persistence", "protocol"],
+  platform: ["platform", "protocol"],
+  /** Stable package facade; it may re-export designated public modules only. */
+  public: ["agent", "agents", "api", "cif", "config", "core", "lore", "narrative", "persistence", "platform", "plugins.feature", "plugins.system", "protocol", "story"],
+  "plugins.feature": ["cif", "core", "persistence", "platform", "plugins.feature", "plugins.system", "protocol", "story"],
+  "plugins.system": ["cif", "core", "persistence", "platform", "plugins.system", "protocol"],
+  protocol: ["protocol"],
+  story: ["cif", "core", "protocol", "story"],
 };
+const sqliteCifForbiddenModules = new Set(["agent", "agents", "plugins.feature"]);
 
 const files = await findSourceFiles(sourceRoot);
 const violations = [];
 for (const file of files) {
   if (file.endsWith(".test.ts")) continue;
   const projectPath = relative(sourceRoot, file);
-  const [module] = projectPath.split(sep);
+  const module = moduleForPath(projectPath);
   if (projectPath === "index.ts") continue;
   if (!allowedDependencies[module]) {
     violations.push(`${projectPath}: production file must belong to a registered module`);
@@ -32,7 +40,13 @@ for (const file of files) {
     const specifier = match[1];
     if (!specifier.startsWith(".")) continue;
     const target = relative(sourceRoot, resolve(dirname(file), specifier));
-    const [targetModule] = target.split(sep);
+    const targetModule = moduleForPath(target);
+    if (sqliteCifForbiddenModules.has(module) && normalizedPath(target) === "cif/sqlite-repository") {
+      violations.push(`${projectPath}: ${module} must depend on a CIF port, not SqliteCifRepository (${specifier})`);
+    }
+    if (projectPath === "core/runtime.ts" && normalizedPath(target) === "core/interaction-coordinator") {
+      violations.push(`${projectPath}: Runtime must use InteractionCommandHandler, not the concrete interaction coordinator (${specifier})`);
+    }
     if (targetModule && !allowedDependencies[module].includes(targetModule)) {
       violations.push(`${projectPath}: ${module} must not import ${targetModule} (${specifier})`);
     }
@@ -54,4 +68,14 @@ async function findSourceFiles(directory) {
     return entry.isFile() && entry.name.endsWith(".ts") ? [entryPath] : [];
   }));
   return files.flat();
+}
+
+function moduleForPath(projectPath) {
+  const [root, kind] = projectPath.split(sep);
+  if (root === "public.ts") return "public";
+  return root === "plugins" && kind ? `plugins.${kind}` : root;
+}
+
+function normalizedPath(projectPath) {
+  return projectPath.split(sep).join("/").replace(/\.(?:js|ts)$/, "");
 }

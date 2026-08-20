@@ -27,6 +27,7 @@ import type { SceneLifecycleEvent, SceneLifecycleSnapshot } from "../core/scene-
 import type { InteractionPlan } from "../core/interaction-coordinator.js";
 import type { InteractionExecution, InteractionExecutionStatus } from "../core/interaction-execution.js";
 import type { BranchFact, BranchProgress, PersistedStoryChapterPackage, SessionStoryContext, WorldlineDivergence } from "../core/worldline.js";
+import { upgradePersistedRecord } from "../protocol/persistence-versioning.js";
 
 type Row = Record<string, unknown>;
 const asJson = (value: unknown): string => JSON.stringify(value);
@@ -42,11 +43,11 @@ export class SqliteCifRepository {
       PRAGMA foreign_keys = ON;
       PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS schema_migrations (
-        version TEXT PRIMARY KEY, applied_at TEXT NOT NULL
+        version TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS objective_history (
         id TEXT PRIMARY KEY, session_id TEXT NOT NULL, sequence INTEGER NOT NULL,
-        event_type TEXT NOT NULL, payload_json TEXT NOT NULL, causation_json TEXT NOT NULL DEFAULT '{}', state_revision INTEGER NOT NULL DEFAULT 0, moment_json TEXT, created_at TEXT NOT NULL,
+        event_type TEXT NOT NULL, payload_json TEXT NOT NULL, causation_json TEXT NOT NULL DEFAULT '{}', state_revision INTEGER NOT NULL DEFAULT 0, moment_json TEXT, schema_version INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
         UNIQUE(session_id, sequence)
       ) STRICT;
       CREATE TABLE IF NOT EXISTS processed_actions (
@@ -54,7 +55,7 @@ export class SqliteCifRepository {
         state_revision INTEGER NOT NULL, created_at TEXT NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS session_world_states (
-        session_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, state_json TEXT NOT NULL,
+        session_id TEXT PRIMARY KEY, revision INTEGER NOT NULL, state_json TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS session_story_contexts (
@@ -192,7 +193,7 @@ export class SqliteCifRepository {
       ) STRICT;
       CREATE TABLE IF NOT EXISTS durable_jobs (
         id TEXT PRIMARY KEY, session_id TEXT NOT NULL, kind TEXT NOT NULL, dedupe_key TEXT NOT NULL,
-        payload_json TEXT NOT NULL, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+        payload_json TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
         max_attempts INTEGER NOT NULL, available_at TEXT NOT NULL, leased_at TEXT, lease_owner TEXT,
         completed_at TEXT, error TEXT, created_at TEXT NOT NULL,
         UNIQUE(session_id, kind, dedupe_key)
@@ -257,6 +258,15 @@ export class SqliteCifRepository {
 
   public close(): void { this.db.close(); }
 
+  public listSchemaMigrations(): Array<{ id: string; checksum: string; appliedAt: string }> {
+    return (this.db.prepare("SELECT version, checksum, applied_at FROM schema_migrations ORDER BY version").all() as Row[])
+      .map((row) => ({ id: String(row.version), checksum: String(row.checksum), appliedAt: String(row.applied_at) }));
+  }
+
+  public recordSchemaMigrationRecord(record: { id: string; checksum: string; appliedAt: string }): void {
+    this.db.prepare("INSERT INTO schema_migrations (version, checksum, applied_at) VALUES (?, ?, ?)").run(record.id, record.checksum, record.appliedAt);
+  }
+
   public transaction<T>(operation: () => T): T {
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -275,9 +285,9 @@ export class SqliteCifRepository {
   }
 
   public saveWorldState(state: GameState, updatedAt: string): void {
-    this.db.prepare(`INSERT INTO session_world_states VALUES (?, ?, ?, ?)
-      ON CONFLICT(session_id) DO UPDATE SET revision = excluded.revision, state_json = excluded.state_json, updated_at = excluded.updated_at`
-    ).run(state.sessionId, state.revision, asJson(state), updatedAt);
+    this.db.prepare(`INSERT INTO session_world_states VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET revision = excluded.revision, state_json = excluded.state_json, schema_version = excluded.schema_version, updated_at = excluded.updated_at`
+    ).run(state.sessionId, state.revision, asJson(state), 1, updatedAt);
   }
 
   public savePlayerPrivateNote(note: PlayerPrivateNote): void {
@@ -295,8 +305,18 @@ export class SqliteCifRepository {
   }
 
   public loadWorldState(sessionId: string): GameState | undefined {
-    const row = this.db.prepare("SELECT state_json FROM session_world_states WHERE session_id = ?").get(sessionId) as Row | undefined;
-    return row ? fromJson<GameState>(row.state_json) : undefined;
+    const row = this.db.prepare("SELECT state_json, schema_version FROM session_world_states WHERE session_id = ?").get(sessionId) as Row | undefined;
+    return row ? upgradePersistedRecord(fromJson<GameState>(row.state_json), row.schema_version === undefined ? undefined : Number(row.schema_version)).value : undefined;
+  }
+
+  public loadWorldStateSnapshot(sessionId: string): { state: GameState; schemaVersion: number; updatedAt: string; lastEventSequence: number } | undefined {
+    const row = this.db.prepare("SELECT state_json, schema_version, updated_at FROM session_world_states WHERE session_id = ?").get(sessionId) as Row | undefined;
+    if (!row) return undefined;
+    const last = this.db.prepare("SELECT MAX(sequence) AS sequence FROM objective_history WHERE session_id = ?").get(sessionId) as Row;
+    return {
+      state: upgradePersistedRecord(fromJson<GameState>(row.state_json), Number(row.schema_version)).value,
+      schemaVersion: Number(row.schema_version), updatedAt: String(row.updated_at), lastEventSequence: Number(last.sequence ?? 0),
+    };
   }
 
   public saveStoryContext(context: SessionStoryContext): void {
@@ -388,9 +408,9 @@ export class SqliteCifRepository {
   }
 
   public appendObjectiveHistory(input: { id: string; sessionId: string; sequence: number; eventType: string; payload: unknown; causation?: GameEvent["causation"]; stateRevision?: number; moment?: GameEvent["moment"]; createdAt: string }): void {
-    this.db.prepare("INSERT INTO objective_history (id, session_id, sequence, event_type, payload_json, causation_json, state_revision, moment_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    this.db.prepare("INSERT INTO objective_history (id, session_id, sequence, event_type, payload_json, causation_json, state_revision, moment_json, schema_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(input.id, input.sessionId, input.sequence, input.eventType, asJson(input.payload), asJson(input.causation ?? {}), input.stateRevision ?? 0,
-        input.moment ? asJson(input.moment) : null, input.createdAt);
+        input.moment ? asJson(input.moment) : null, 1, input.createdAt);
   }
 
   /** Rebuilds the exact public ActionResult persisted by a successful turn. */
@@ -416,16 +436,27 @@ export class SqliteCifRepository {
     return eventIds.map((id) => byId.get(id)).filter((event): event is GameEvent => event !== undefined);
   }
 
+  public listObjectiveHistory(input: { sessionId: string; afterSequence?: number; beforeSequence?: number; types?: readonly string[]; limit?: number }): GameEvent[] {
+    const clauses = ["session_id = ?"];
+    const values: Array<string | number> = [input.sessionId];
+    if (input.afterSequence !== undefined) { clauses.push("sequence > ?"); values.push(input.afterSequence); }
+    if (input.beforeSequence !== undefined) { clauses.push("sequence < ?"); values.push(input.beforeSequence); }
+    if (input.types?.length) { clauses.push(`event_type IN (${input.types.map(() => "?").join(", ")})`); values.push(...input.types); }
+    const limit = input.limit ?? 1000;
+    return (this.db.prepare(`SELECT * FROM objective_history WHERE ${clauses.join(" AND ")} ORDER BY sequence LIMIT ?`).all(...values, limit) as Row[])
+      .map((row) => this.historyEvent(row));
+  }
+
   /**
    * Adds work inside the caller's transaction. Duplicate delivery keys are a
    * successful no-op, so a retried turn cannot create duplicate background work.
    */
   public enqueueDurableJob(job: DurableJob): void {
     this.db.prepare(`INSERT INTO durable_jobs
-      (id, session_id, kind, dedupe_key, payload_json, status, attempts, max_attempts, available_at, leased_at, lease_owner, completed_at, error, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, session_id, kind, dedupe_key, payload_json, schema_version, status, attempts, max_attempts, available_at, leased_at, lease_owner, completed_at, error, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id, kind, dedupe_key) DO NOTHING`).run(
-      job.id, job.sessionId, job.kind, job.dedupeKey, asJson(job.payload), job.status, job.attempts,
+      job.id, job.sessionId, job.kind, job.dedupeKey, asJson(job.payload), 1, job.status, job.attempts,
       job.maxAttempts, job.availableAt, job.leasedAt ?? null, job.leaseOwner ?? null, job.completedAt ?? null,
       job.error ?? null, job.createdAt,
     );
@@ -775,12 +806,14 @@ export class SqliteCifRepository {
   }
   /** Creates the workflow state and its durable delivery in one database transaction. */
   public enqueueInteractionExecution(execution: InteractionExecution): void {
-    this.transaction(() => {
-      this.saveInteractionExecution(execution);
-      this.enqueueDurableJob({ id: randomUUID(), sessionId: execution.sessionId, kind: "interaction.execute", dedupeKey: execution.playerActionId,
-        payload: { executionId: execution.id }, status: "pending", attempts: 0, maxAttempts: execution.maxAttempts,
-        availableAt: execution.createdAt, createdAt: execution.createdAt });
-    });
+    this.transaction(() => this.enqueueInteractionExecutionInTransaction(execution));
+  }
+  /** Caller owns the source player turn transaction. */
+  public enqueueInteractionExecutionInTransaction(execution: InteractionExecution): void {
+    this.saveInteractionExecution(execution);
+    this.enqueueDurableJob({ id: randomUUID(), sessionId: execution.sessionId, kind: "interaction.execute", dedupeKey: execution.playerActionId,
+      payload: { executionId: execution.id }, status: "pending", attempts: 0, maxAttempts: execution.maxAttempts,
+      availableAt: execution.createdAt, createdAt: execution.createdAt });
   }
   public transitionInteractionExecution(id: string, from: readonly InteractionExecutionStatus[], next: InteractionExecutionStatus, updatedAt: string, reason?: string, responseEventId?: string): boolean {
     if (!from.length) return false;
@@ -863,6 +896,12 @@ export class SqliteCifRepository {
   }
 
   private migrateSchema(): void {
+    for (const [table, column] of [["objective_history", "schema_version"], ["session_world_states", "schema_version"], ["durable_jobs", "schema_version"]] as const) {
+      const columns = new Set((this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((row) => String(row.name)));
+      if (!columns.has(column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+    }
+    const migrationColumns = new Set((this.db.prepare("PRAGMA table_info(schema_migrations)").all() as Row[]).map((row) => String(row.name)));
+    if (!migrationColumns.has("checksum")) this.db.exec("ALTER TABLE schema_migrations ADD COLUMN checksum TEXT NOT NULL DEFAULT 'legacy'");
     const columns = new Set((this.db.prepare("PRAGMA table_info(objective_history)").all() as Row[]).map((row) => String(row.name)));
     if (!columns.has("causation_json")) this.db.exec("ALTER TABLE objective_history ADD COLUMN causation_json TEXT NOT NULL DEFAULT '{}'");
     if (!columns.has("state_revision")) this.db.exec("ALTER TABLE objective_history ADD COLUMN state_revision INTEGER NOT NULL DEFAULT 0");
@@ -897,16 +936,16 @@ export class SqliteCifRepository {
     this.recordSchemaMigration("2026-08-interaction-execution-v1");
   }
   private recordSchemaMigration(version: string): void {
-    this.db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?) ON CONFLICT(version) DO NOTHING")
-      .run(version, new Date().toISOString());
+    this.db.prepare("INSERT INTO schema_migrations (version, checksum, applied_at) VALUES (?, ?, ?) ON CONFLICT(version) DO NOTHING")
+      .run(version, `legacy:${version}`, new Date().toISOString());
   }
   private historyEvent(row: Row): GameEvent {
-    return { id: String(row.id), sessionId: String(row.session_id), sequence: Number(row.sequence), type: String(row.event_type) as GameEvent["type"],
+    return upgradePersistedRecord({ id: String(row.id), sessionId: String(row.session_id), sequence: Number(row.sequence), type: String(row.event_type) as GameEvent["type"],
       payload: fromJson<Record<string, unknown>>(row.payload_json), causation: fromJson<GameEvent["causation"]>(row.causation_json ?? "{}"),
-      stateRevision: Number(row.state_revision ?? 0), ...(row.moment_json ? { moment: fromJson<GameEvent["moment"]>(row.moment_json) } : {}), createdAt: String(row.created_at) };
+      stateRevision: Number(row.state_revision ?? 0), ...(row.moment_json ? { moment: fromJson<GameEvent["moment"]>(row.moment_json) } : {}), createdAt: String(row.created_at) }, row.schema_version === undefined ? undefined : Number(row.schema_version)).value;
   }
   private durableJob(row: Row): DurableJob {
-    return {
+    return upgradePersistedRecord({
       id: String(row.id), sessionId: String(row.session_id), kind: String(row.kind), dedupeKey: String(row.dedupe_key),
       payload: fromJson<Record<string, unknown>>(row.payload_json), status: row.status as DurableJob["status"],
       attempts: Number(row.attempts), maxAttempts: Number(row.max_attempts), availableAt: String(row.available_at),
@@ -914,7 +953,7 @@ export class SqliteCifRepository {
       ...(row.lease_owner ? { leaseOwner: String(row.lease_owner) } : {}),
       ...(row.completed_at ? { completedAt: String(row.completed_at) } : {}),
       ...(row.error ? { error: String(row.error) } : {}), createdAt: String(row.created_at),
-    };
+    }, row.schema_version === undefined ? undefined : Number(row.schema_version)).value;
   }
   private branchFact(row: Row): BranchFact {
     return { id: String(row.id), sessionId: String(row.session_id), factKey: String(row.fact_key),

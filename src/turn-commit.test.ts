@@ -3,6 +3,7 @@ import test from "node:test";
 import type { GameEvent } from "./core/contracts.js";
 import { SqliteCifRepository } from "./cif/sqlite-repository.js";
 import { SqliteTurnCommitter } from "./persistence/turn-commit.js";
+import { SqliteDurableJobQueue } from "./plugins/system/durable-jobs.js";
 
 const event = (id: string, sequence: number): GameEvent => ({
   id, sessionId: "demo", createdAt: "2026-08-11T10:00:00Z", sequence,
@@ -52,5 +53,24 @@ test("a failed transaction leaves no partial objective history", () => {
     throw new Error("forced failure");
   }));
   assert.equal(repository.countObjectiveHistory("demo"), 0);
+  repository.close();
+});
+
+test("a failed TurnCommit leaves state, events, receipt, and jobs invisible together", () => {
+  const repository = new SqliteCifRepository();
+  const queue = new SqliteDurableJobQueue(repository);
+  const committed = event("event-outbox", 1);
+  assert.throws(() => new SqliteTurnCommitter(repository).commit({
+    actionId: "action-outbox", requestFingerprint: "request-outbox", sessionId: "demo", stateRevision: 1,
+    worldState: { sessionId: "demo", revision: 1, characters: {}, locations: {} }, events: [committed], recipientsByEventId: new Map(),
+    commitEffects: [() => {
+      queue.enqueue({ id: "job-outbox", sessionId: "demo", kind: "test", dedupeKey: "outbox", payload: {}, status: "pending", attempts: 0, maxAttempts: 1, availableAt: "2026-08-11T10:00:00Z", createdAt: "2026-08-11T10:00:00Z" });
+      throw new Error("outbox failure");
+    }],
+  }), /outbox failure/);
+  assert.equal(repository.loadWorldState("demo"), undefined);
+  assert.deepEqual(repository.listObjectiveHistoryByIds("demo", [committed.id]), []);
+  assert.equal(new SqliteTurnCommitter(repository).getProcessedActionResult("action-outbox", "request-outbox"), undefined);
+  assert.equal(repository.claimDurableJob({ sessionId: "demo", workerId: "worker", now: "2026-08-11T10:00:01Z", leaseExpiresBefore: "2026-08-11T10:00:00Z" }), undefined);
   repository.close();
 });

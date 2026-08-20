@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CharacterContextBuilder, CORE_IDENTITY_SECTIONS } from "./context-builder.js";
+import { BuilderCharacterContextProvider } from "./character-context-provider.js";
 import { SqliteCifRepository } from "./sqlite-repository.js";
 
-test("CIF context keeps evidence, belief, identity, and objective history separate", () => {
+test("CIF context keeps evidence, belief, identity, and objective history separate", async () => {
   const repository = new SqliteCifRepository();
   repository.appendObjectiveHistory({ id: "event-1", sessionId: "demo", sequence: 1, eventType: "player_arrived", payload: { location: "station" }, createdAt: "2026-08-11T10:00:00Z" });
   repository.saveIdentity({ id: "identity-1", sessionId: "demo", characterId: "mash", section: "values", content: "Protect the Master while respecting their choices.", sourceIds: ["canon-1"], version: 1 });
@@ -21,6 +22,8 @@ test("CIF context keeps evidence, belief, identity, and objective history separa
   repository.saveRuntimeState({ sessionId: "demo", characterId: "mash", attention: ["player"], emotions: [{ type: "concern", intensity: 0.6, targetId: "player" }], activeGoals: ["confirm_player_safety"], locationId: "station", availability: "free", currentIntention: "check the player's condition", expressionStrategy: "gentle_directness", updatedAt: "2026-08-11T10:00:00Z" });
 
   const context = new CharacterContextBuilder(repository).build("demo", "mash", { participantIds: ["player"], additionalIdentitySections: ["dream"] });
+  const publicContext = await new BuilderCharacterContextProvider(new CharacterContextBuilder(repository)).build({ sessionId: "demo", characterId: "mash", participantIds: ["player"], additionalIdentitySections: ["dream"] });
+  assert.deepEqual(publicContext, context);
   assert.equal(context.identity.some((item) => item.section === "values"), true);
   assert.ok(CORE_IDENTITY_SECTIONS.includes("voice_embodiment"));
   assert.deepEqual(context.identity.map((item) => item.section), ["dream", "values", "voice_embodiment"]);

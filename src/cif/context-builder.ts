@@ -2,11 +2,8 @@ import type { CharacterContext, CharacterRuntimeState, IdentitySection, MemoryRe
 import { CharacterMemoryService } from "./memory-service.js";
 import { SqliteCifRepository } from "./sqlite-repository.js";
 import type { CifContextTag } from "./context-tags.js";
-
-/** Always-present personality base. Scene routing may add, never remove, these sections. */
-export const CORE_IDENTITY_SECTIONS: readonly IdentitySection[] = [
-  "character_brief", "self_model", "core_schema", "needs", "values", "practical_judgment", "voice_embodiment", "expression_filter",
-];
+import { CORE_IDENTITY_SECTIONS, identitySectionsForContextTags, uniqueIdentitySections } from "./identity-sections.js";
+export { CORE_IDENTITY_SECTIONS } from "./identity-sections.js";
 
 export interface CharacterContextOptions {
   evidenceLimit?: number;
@@ -41,7 +38,7 @@ export class CharacterContextBuilder {
       lifeContext: this.repository.getLifeContext(sessionId, characterId),
       objectiveRelationships: this.repository.listObjectiveRelationships(sessionId, characterId)
         .filter((item) => !options.participantIds?.length || options.participantIds.includes(item.targetId)),
-      identity: this.repository.listIdentity(sessionId, characterId, uniqueSections([...CORE_IDENTITY_SECTIONS, ...sectionsForContextTags(contextTags), ...(options.additionalIdentitySections ?? [])])),
+      identity: this.repository.listIdentity(sessionId, characterId, uniqueIdentitySections([...CORE_IDENTITY_SECTIONS, ...identitySectionsForContextTags(contextTags), ...(options.additionalIdentitySections ?? [])])),
       runtimeState,
       evidence,
       memoryAtoms: memories.atoms,
@@ -54,12 +51,4 @@ export class CharacterContextBuilder {
   private emptyRuntimeState(sessionId: string, characterId: string): CharacterRuntimeState {
     return { sessionId, characterId, attention: [], emotions: [], activeGoals: [], updatedAt: new Date(0).toISOString() };
   }
-}
-
-function uniqueSections(sections: readonly IdentitySection[]): IdentitySection[] { return [...new Set(sections)]; }
-
-function sectionsForContextTags(tags: readonly CifContextTag[]): IdentitySection[] {
-  return tags.includes("major_confirmed") || tags.includes("immediate_danger") || tags.includes("battle_aftermath")
-    ? ["commitment", "appraisal_tendencies", "emotional_pattern", "growth_boundaries"]
-    : [];
 }

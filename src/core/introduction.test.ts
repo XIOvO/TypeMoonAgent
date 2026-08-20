@@ -11,23 +11,20 @@ const state = (): GameState => ({
   locations: { station: { id: "station", exits: [] } },
 });
 
-test("Runtime introduces only a character with a published initialization and emits a visible event", async () => {
+test("Runtime commits a policy-approved character introduction and emits a visible event", async () => {
   const repository = new SqliteCifRepository();
-  const runtime = new GameRuntime(state(), {}, new SqliteTurnCommitter(repository), {
-    hasPublishedInitialization: (_sessionId, characterId) => characterId === "mash",
-  });
+  const runtime = new GameRuntime(state(), {}, new SqliteTurnCommitter(repository));
   const result = await runtime.introduceCharacter({ id: "intro-1", sessionId: "demo", characterId: "mash", locationId: "station", reason: "story_trigger", mood: "alert" });
   assert.equal(runtime.getState().characters.mash?.locationId, "station");
   assert.equal(result.events[0]?.type, "character_introduced");
   assert.equal(result.events[0]?.causation.systemActionId, "intro-1");
   assert.equal(repository.countObjectiveHistory("demo"), 1);
   assert.equal(repository.listEvidence("demo", "player", 3)[0]?.content, "mash appeared at station.");
-  await assert.rejects(runtime.introduceCharacter({ id: "intro-2", sessionId: "demo", characterId: "other", locationId: "station", reason: "story_trigger" }), /character_initialization_not_published/);
   repository.close();
 });
 
 test("Runtime resumes event sequences after prior persisted system events", async () => {
-  const runtime = new GameRuntime(state(), {}, undefined, { hasPublishedInitialization: () => true }, 7);
+  const runtime = new GameRuntime(state(), {}, undefined, undefined, 7);
   const result = await runtime.introduceCharacter({ id: "intro-1", sessionId: "demo", characterId: "mash", locationId: "station", reason: "summon" });
   assert.equal(result.events[0]?.sequence, 8);
 });

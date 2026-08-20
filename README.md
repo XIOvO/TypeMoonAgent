@@ -1,6 +1,6 @@
 # Agent Game Runtime
 
-项目总览见 [docs/project-overview.md](docs/project-overview.md)，模块目录见 [docs/project-structure.md](docs/project-structure.md)，MVP 当前完成度见 [docs/current-status.md](docs/current-status.md)。
+当前核心工程文档为 [架构总览](docs/architecture/overview.md)、[API 与协议规范 v0.3](docs/specifications/API_SPECIFICATION_V0.3.md) 和 [开发路线与任务拆解](docs/development/DEVELOPMENT_ROADMAP_AND_TASK_BREAKDOWN.md)。MVP 实现事实见 [当前状态](docs/current-status.md)，完整专题索引见 [docs/README.md](docs/README.md)。
 
 一个以 **Pi Agent SDK** 为唯一 Agent 接入层的事件驱动游戏后端骨架。
 

@@ -104,7 +104,7 @@ L2 的跨场景模式归纳由 `feature.cif-patterns` 处理：`memory.l2` 至�
 
 `feature.scene-lifecycle` 订阅事务内事件任务，但不拥有 Runtime 的裁决权。它把已确认事件投影为可恢复的 `scene_opened`、`interaction_settled`、`scene_closed` 与场景阶段记录：首次有效玩家互动打开场景，玩家移动关闭旧场景并打开新场景，战斗只切换阶段。它不以墙钟时间关闭场景，也不调用 AI；前台、记忆策略与未来 GM 都应读取这一投影，而不是自行猜测场景边界。
 
-`feature.interaction-coordinator` 生成可解释的参与计划，并拥有 `interaction.execute` 工作流：执行单与 Outbox 使用同一玩家动作幂等键；worker 重启后可恢复动作、主回应者和尝试状态，只经命令网关调用 Runtime。只有确认得到 `character_spoke` L0 事件才标记完成；无回应为跳过，异常由耐久队列退避重试。执行单不是 L0，不能把模型失败伪装成世界事实。当前 API 尚未把未点名对话的入口迁移到执行单，普通对话仍走同步兼容路径；这是下一次迁移的唯一入口缺口。
+`feature.interaction-coordinator` 生成可解释的参与计划，并拥有 `interaction.execute` 工作流：执行单与 Outbox 使用同一玩家动作幂等键；worker 重启后可恢复动作、主回应者和尝试状态，只经命令网关提交通用命令。只有确认得到 `character_spoke` L0 事件才标记完成；无回应为跳过，异常由耐久队列退避重试。执行单不是 L0，不能把模型失败伪装成世界事实。普通玩家对话通过 `interaction.commandHandler` 在同一事务内创建执行单；Runtime 只依赖该 capability 契约，未注入该契约的旧调用路径仍保留同步兼容行为。
 
 ## 2.2 空间与地图：当前最小模型不等于正式地图
 

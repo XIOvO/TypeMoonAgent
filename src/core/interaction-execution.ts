@@ -15,9 +15,11 @@ export interface InteractionExecutionStore {
 /** Narrow port used by the coordinator to create a recoverable outbox entry. */
 export interface InteractionExecutionOutbox extends InteractionExecutionStore {
   enqueueInteractionExecution(execution: InteractionExecution): void;
+  /** Called inside the source player turn's transaction to keep the outbox atomic. */
+  enqueueInteractionExecutionInTransaction(execution: InteractionExecution): void;
 }
 
-export interface InteractionExecutionGateway { handlePlayerAction(action: import("./contracts.js").PlayerAction): Promise<import("./contracts.js").ActionResult>; }
+export interface InteractionExecutionGateway { execute(command: import("../protocol/command.js").CommandEnvelope<InteractionExecution>): Promise<import("./contracts.js").ActionResult>; }
 export class InteractionExecutionWorker {
   public constructor(private readonly jobs: import("./durable-jobs.js").DurableJobQueue, private readonly store: InteractionExecutionStore, private readonly gateway: InteractionExecutionGateway) {}
   public async processNext(sessionId: string, now = new Date()): Promise<boolean> {
@@ -28,12 +30,26 @@ export class InteractionExecutionWorker {
       const id = typeof job.payload.executionId === "string" ? job.payload.executionId : undefined;
       const execution = id && this.store.getInteractionExecutionById(id);
       if (!execution || !execution.leadCharacterId || !this.store.transitionInteractionExecution(execution.id, ["planned", "retry_wait"], "executing", now.toISOString())) { this.jobs.complete(job.id, workerId, now.toISOString()); return true; }
-      const result = await this.gateway.handlePlayerAction({ ...execution.action, targetIds: [execution.leadCharacterId] });
+      const result = await this.gateway.execute({
+        id: execution.id, sessionId: execution.sessionId, type: "interaction.execute", payload: execution,
+        causation: { playerActionId: execution.playerActionId }, correlationId: `interaction:${execution.id}`,
+      });
       const response = result.events.find((event) => event.type === "character_spoke" && event.payload.characterId === execution.leadCharacterId);
       this.jobs.transaction(() => { this.store.transitionInteractionExecution(execution.id, ["executing"], response ? "completed" : "skipped", now.toISOString(), response ? undefined : "no_confirmed_response", response?.id); this.jobs.complete(job.id, workerId, now.toISOString()); });
       return true;
-    } catch (error) { this.jobs.retry(job.id, workerId, error instanceof Error ? error.message : "interaction_execution_failed", new Date(now.getTime() + 1_000).toISOString()); return true; }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "interaction_execution_failed";
+      this.jobs.transaction(() => {
+        this.store.transitionInteractionExecution(executionId(job), ["executing"], job.attempts >= job.maxAttempts ? "exhausted" : "retry_wait", now.toISOString(), reason);
+        this.jobs.retry(job.id, workerId, reason, new Date(now.getTime() + 1_000).toISOString());
+      });
+      return true;
+    }
   }
+}
+
+function executionId(job: import("./durable-jobs.js").DurableJob): string {
+  return typeof job.payload.executionId === "string" ? job.payload.executionId : "";
 }
 
 export function canTransition(from: InteractionExecutionStatus, next: InteractionExecutionStatus): boolean {
