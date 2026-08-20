@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SqliteCifRepository } from "../cif/sqlite-repository.js";
 import type { GameEvent, GameState } from "../core/contracts.js";
+import { exitGraphNavigation } from "../core/navigation.js";
 import { GameRuntime } from "../core/runtime.js";
 import { SqliteTurnCommitter } from "../persistence/turn-commit.js";
 import { PresentFreeCharacterWorldTickPlanner, WorldSimulationWorker, WorldTickScheduler, WorldTickWorker } from "./world-tick.js";
@@ -156,7 +157,7 @@ test("a verified approach candidate commits exactly one Runtime movement edge", 
   repository.saveWorldState(state, "2026-08-15T00:00:00.000Z");
   repository.saveRuntimeState({ sessionId: "demo", characterId: "mash", attention: [], emotions: [], activeGoals: ["find the player"], availability: "free", approachPlayer: "when_safe", knownPlayerLocationId: "destination", updatedAt: "2026-08-15T00:00:00.000Z" });
   repository.enqueueDurableJob({ id: "approach", sessionId: "demo", kind: "world.simulation", dedupeKey: "session:demo:1:mash", payload: { timelineId: "session:demo", tick: 1, sourceEventId: "wait", actorId: "mash", reason: "approach_player", targetLocationId: "destination" }, status: "pending", attempts: 0, maxAttempts: 3, availableAt: "2026-08-15T00:00:00.000Z", createdAt: "2026-08-15T00:00:00.000Z" });
-  const runtime = new GameRuntime(state, {}, new SqliteTurnCommitter(repository));
+  const runtime = new GameRuntime(state, {}, new SqliteTurnCommitter(repository), undefined, 0, undefined, undefined, exitGraphNavigation);
   const worker = new WorldSimulationWorker(jobs(repository), repository, repository, "player", new RuntimeWorldSimulationExecutor(runtime, repository, "player"));
   await worker.processNext("demo", new Date("2026-08-15T00:01:00.000Z"));
   assert.equal(runtime.getState().characters.mash.locationId, "middle");

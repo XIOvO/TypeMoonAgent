@@ -9,6 +9,7 @@ import { SqliteTurnCommitter } from "./persistence/turn-commit.js";
 import { SqliteDurableJobQueue } from "./plugins/system/durable-jobs.js";
 import { DurableInteractionCommandHandler } from "./plugins/feature/interaction-coordinator.js";
 import { SimpleCombatActionHandler } from "./plugins/feature/simple-combat-rules.js";
+import { exitGraphNavigation } from "./core/navigation.js";
 
 const state = (): GameState => ({
   sessionId: "demo", revision: 0,
@@ -288,7 +289,7 @@ test("Runtime moves an approaching character one deterministic map edge only", a
   approaching.characters.player.locationId = "cafeteria";
   approaching.locations.hall.exits = ["mid", "cafeteria"];
   approaching.locations.mid = { id: "mid", exits: ["hall", "cafeteria"] };
-  const runtime = new GameRuntime(approaching, {});
+  const runtime = new GameRuntime(approaching, {}, undefined, undefined, 0, undefined, undefined, exitGraphNavigation);
   const result = await runtime.moveCharacterTowardPlayer({ id: "approach-1", sessionId: "demo", playerId: "player", characterId: "mash", expectedPlayerLocationId: "cafeteria", reason: "approach_player" });
   assert.deepEqual(result.events.map((event) => event.type), ["character_moved"]);
   assert.equal(result.events[0]?.payload.to, "cafeteria");

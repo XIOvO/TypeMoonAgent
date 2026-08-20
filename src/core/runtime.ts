@@ -15,7 +15,7 @@ import type {
   RawPlayerInput,
 } from "./contracts.js";
 import { asAgentRunnerResolver, isCombinedTurnRunner, type AgentRunnerResolver, type AgentRunnerSource } from "./agent-runner.js";
-import { nextStepToward, type NavigationPlanner } from "./navigation.js";
+import type { NavigationPlanner } from "./navigation.js";
 import type { TurnCommitter } from "../persistence/turn-commit.js";
 import type { StoryChapterPackage } from "./worldline.js";
 import type { WorldStatePublisher } from "./world-state.js";
@@ -140,7 +140,7 @@ export class GameRuntime {
     if (request.sessionId !== this.state.sessionId || !player || !character || character.id === player.id) throw new Error("character_approach_unavailable");
     if (this.state.battle?.status === "active" || player.locationId !== request.expectedPlayerLocationId || character.locationId === player.locationId) throw new Error("character_approach_ineligible");
     const route = this.navigation?.findRoute(this.state, character.locationId, player.locationId);
-    const destination = route?.kind === "reachable" ? route.steps[0] : route ? undefined : nextStepToward(this.state, character.locationId, player.locationId);
+    const destination = route?.kind === "reachable" ? route.steps[0] : undefined;
     if (!destination) throw new Error("character_approach_path_unavailable");
     const from = character.locationId;
     const witnesses = this.visibleAt(from);
