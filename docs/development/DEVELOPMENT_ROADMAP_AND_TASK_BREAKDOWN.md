@@ -321,6 +321,8 @@ E08 从 v0.3 第一天开始，不在最后补做。
 
 2026-08-20 状态：E08-04 已完成。架构测试以临时 import 图验证 protocol、kernel、feature 与 persistence adapter 的逆向依赖都会让模块检查器确定性失败。
 
+2026-08-20 状态：E08-05 已完成。`replayGameState` 从初始 snapshot 与完整事件流确定性重建移动、对象状态、revision 与 game moment，并拒绝 session、sequence 或 revision 不连续的流。
+
 ## 12. E09 — SDK 与参考插件
 
 目标：证明架构可被项目外开发者使用，而不只是内部目录更整齐。
@@ -576,9 +578,9 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-04 已完成。下一步进入 E08-05：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-05 已完成。下一步进入 E08-06：
 
-1. 添加 event replay fixture；
-2. 从初始状态重放事件并断言得到预期状态。
+1. 添加 Simple/Dummy combat plugin swap test；
+2. 验证替换 provider 时 Kernel 保持不变。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。
