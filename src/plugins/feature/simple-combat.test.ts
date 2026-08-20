@@ -64,6 +64,43 @@ test("DummyCombatPlugin replaces combat.resolve without changing Kernel or Runti
   await running.dispose();
 });
 
+test("Simple and Dummy combat providers swap under the same Kernel composition", async () => {
+  const simple = await resolveWithProvider("simple");
+  const dummy = await resolveWithProvider("dummy");
+  assert.deepEqual(simple.result.events.map((event) => event.type), ["battle_round_resolved"]);
+  assert.equal(simple.state.battle?.enemies.skeleton?.hp, 2);
+  assert.deepEqual(dummy.result.events, []);
+  assert.equal(dummy.state.battle?.enemies.skeleton?.hp, 3);
+});
+
+async function resolveWithProvider(provider: "simple" | "dummy") {
+  const state = world();
+  const store = new WorldStateStore(state);
+  const runtime = combatKernel(state);
+  const commands = createRuntimeCommandAuthoritySystem(runtime);
+  const navigation = new CommittedWorldNavigation(store, exitGraphNavigation);
+  const plugin = provider === "simple" ? createSimpleCombatPlugin(commands.gateway) : createDummyCombatPlugin(commands.gateway);
+  const running = await bootstrap(new CordisPlatformAdapter(), {
+    profileId: `combat-swap-${provider}`,
+    plugins: [
+      { plugin: createWorldStatePlugin(store) }, { plugin: createWorldMapPlugin(new StateBackedWorldMap(store)) },
+      { plugin: createWorldNavigationPlugin(navigation) }, { plugin: commands.plugin }, { plugin },
+    ],
+  });
+  try {
+    const combat = running.get<CombatResolveController>(COMBAT_RESOLVE_CAPABILITY);
+    const result = await combat.execute({ id: `swap-${provider}`, sessionId: "demo", actorId: "player", type: COMBAT_RESOLVE_CAPABILITY,
+      payload: { participation: "command", commands: [{ actorId: "mash", intent: "attack", targetId: "skeleton" }] }, causation: {}, correlationId: `combat:swap:${provider}` });
+    return { result, state: runtime.getState() };
+  } finally {
+    await running.dispose();
+  }
+}
+
+function combatKernel(state: GameState): GameRuntime {
+  return new GameRuntime(state, {}, undefined, undefined, 0, undefined, undefined, undefined, undefined, new SimpleCombatActionHandler());
+}
+
 function world(): GameState {
   return { sessionId: "demo", revision: 0, characters: { player: { id: "player", locationId: "hall", mood: "calm" }, mash: { id: "mash", locationId: "hall", mood: "alert" } }, locations: { hall: { id: "hall", exits: [] } }, battle: {
     id: "battle-1", locationId: "hall", status: "active", turn: 1, objective: "Hold the hall.",
