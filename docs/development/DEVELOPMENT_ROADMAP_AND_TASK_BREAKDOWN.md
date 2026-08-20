@@ -294,6 +294,8 @@ L1、L2、审核、发布和 L3 仍遵守现有证据与人工/策略门控，�
 
 2026-08-20 状态：E07-N2 已完成。Runtime 不再回退到内置 BFS；角色接近只能使用注入的 navigation provider 返回的 route，并且仍只采用第一步。
 
+2026-08-20 状态：E07-N3 已完成。alternate navigation provider 已在完整插件组合中替换默认实现；它产生的 `character_moved` 事件负载与最终 world state 保持兼容，Runtime 未作修改。
+
 E07 全部完成后，GameRuntime 不得按 battle_started、chapter_entered、story_summon_opened 等领域事件类型实现业务分支。
 
 ## 11. E08 — Observability 与架构质量
@@ -566,9 +568,9 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1、E07-N2 已完成。下一步进入 E07-N3：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3 已完成。下一步进入 E08-01：
 
-1. 增加 navigation provider swap test；
-2. 确认替换 map/navigation fixture 后存档事实仍兼容。
+1. 建立 correlationId 的生成与传播；
+2. 使 Action 到 Job 可被同一关联标识串联。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。
