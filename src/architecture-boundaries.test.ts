@@ -12,6 +12,7 @@ test("module boundary checker deterministically rejects reverse-layer imports", 
     await writeFixture(fixture, "kernel/invalid.ts", 'import {} from "../core/runtime.js";');
     await writeFixture(fixture, "plugins/feature/invalid.ts", 'import {} from "../system/persistence.js";');
     await writeFixture(fixture, "persistence/invalid.ts", 'import {} from "../plugins/feature/world-simulation.js";');
+    await writeFixture(fixture, "sdk/invalid.ts", 'import {} from "../platform/cordis-platform.js";');
 
     const result = spawnSync(process.execPath, [resolve(process.cwd(), "scripts/check-module-boundaries.mjs"), fixture], { encoding: "utf8" });
     assert.equal(result.status, 1);
@@ -19,6 +20,7 @@ test("module boundary checker deterministically rejects reverse-layer imports", 
     assert.match(result.stderr, /kernel.*must not import core/);
     assert.match(result.stderr, /plugins\.feature.*must not import plugins\.system/);
     assert.match(result.stderr, /persistence.*must not import plugins\.feature/);
+    assert.match(result.stderr, /sdk must depend on public contracts, not private implementations/);
   } finally {
     await rm(fixture, { recursive: true, force: true });
   }

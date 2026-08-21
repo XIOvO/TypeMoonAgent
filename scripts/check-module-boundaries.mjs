@@ -21,9 +21,19 @@ const allowedDependencies = {
   "plugins.feature": ["cif", "core", "platform", "plugins.feature", "protocol", "story"],
   "plugins.system": ["cif", "core", "persistence", "platform", "plugins.system", "protocol"],
   protocol: ["protocol"],
+  sdk: ["agent", "platform", "protocol", "sdk"],
   story: ["cif", "core", "protocol", "story"],
 };
 const sqliteCifForbiddenModules = new Set(["agent", "agents", "plugins.feature"]);
+const sdkContractModules = new Set([
+  "agent/provider",
+  "platform/capability-version",
+  "platform/plugin-context",
+  "platform/plugin-manifest",
+  "protocol/capability",
+  "protocol/combat-commands",
+  "protocol/command",
+]);
 
 const files = await findSourceFiles(sourceRoot);
 const violations = [];
@@ -47,6 +57,9 @@ for (const file of files) {
     }
     if (projectPath === "core/runtime.ts" && normalizedPath(target) === "core/interaction-coordinator") {
       violations.push(`${projectPath}: Runtime must use InteractionCommandHandler, not the concrete interaction coordinator (${specifier})`);
+    }
+    if (module === "sdk" && targetModule !== "sdk" && !sdkContractModules.has(normalizedPath(target))) {
+      violations.push(`${projectPath}: sdk must depend on public contracts, not private implementations (${specifier})`);
     }
     if (targetModule && !allowedDependencies[module].includes(targetModule)) {
       violations.push(`${projectPath}: ${module} must not import ${targetModule} (${specifier})`);

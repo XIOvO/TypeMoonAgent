@@ -39,6 +39,7 @@ Atlas 原始 Script → lore.sqlite（切片 + FTS）→ CIF 初始化证据包
 | CIF 初始化 | 时间线过滤的证据包、Pi 低频草案、引用校验、待审核草案、审核后发布、最小审核面板 | 完整审阅编辑与真实开局创建流程仍待实现 |
 | 剧情触发 | `CharacterAvailability` 候选池、世界状态过滤、权重排序、Runtime 受控引入 | 尚未接入实际开局创建/存档流程；候选配置目前仅有玛修样例，无 `CanonBeat` 或世界时间推进 |
 | 场景互动 | 场景生命周期、同场候选协调、互动计划、执行单状态机、`interaction.execute` 耐久 worker | 玩家输入入口尚未迁移为“先建执行单再异步执行”；当前普通对话仍保留同步兼容路径 |
+| SDK Alpha | 公共定义、`createTestRuntime`、两个参考插件、无凭据 `rule-agent`、Developer Quickstart 与 plugin/Agent conformance 报告器；E09 Alpha 范围已完成 | 包仍为 private；独立发布、进程隔离和目标 v0.3 Agent API 迁移仍未完成 |
 
 ## CIF 首次登场的实际流程
 

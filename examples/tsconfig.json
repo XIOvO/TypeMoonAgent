@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../dist-examples",
+    "declaration": false,
+    "types": ["node"]
+  },
+  "include": ["plugins/**/*.ts", "providers/**/*.ts", "conformance/**/*.ts"]
+}

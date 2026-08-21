@@ -22,3 +22,5 @@ PlayerAction → GameRuntime → Observation → PiAgentRunner
 Pi 的真实模型调用尚未连接到 HTTP 服务；`PiAgentRunner` 已提供安全的工具集合和接口位置，下一步是添加 API 与持久化存储。
 
 项目规范见 [docs/README.md](docs/README.md)。
+
+SDK Alpha 插件开发请从 [Plugin Developer Quickstart](docs/sdk/quickstart.md) 开始。

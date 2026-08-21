@@ -1,4 +1,15 @@
-import type { AgentAction, Observation } from "../core/contracts.js";
+import type { LegacyAgentAction } from "../protocol/agent-action.js";
+import type { LegacyObservation } from "../protocol/observation.js";
+
+/** The v0.2 self-state shape retained by the current Agent compatibility path. */
+export interface AgentProviderCharacterState {
+  id: string;
+  locationId: string;
+  mood: "calm" | "alert";
+}
+
+export type AgentProviderObservation = LegacyObservation<AgentProviderCharacterState>;
+export type AgentProviderAction = LegacyAgentAction;
 
 /** Declarative input used to select a provider without hard-coding character IDs. */
 export interface BindingQuery {
@@ -12,5 +23,5 @@ export interface BindingQuery {
 export interface AgentProvider {
   readonly id: string;
   supports(query: BindingQuery): boolean;
-  run(observation: Observation): Promise<AgentAction>;
+  run(observation: AgentProviderObservation): Promise<AgentProviderAction>;
 }

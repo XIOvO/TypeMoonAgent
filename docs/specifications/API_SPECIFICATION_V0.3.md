@@ -613,6 +613,117 @@ apiVersion 表示插件协议版本，MUST 与插件自身 version 分离。
 
 Current PluginManager 的 register、enable、disable、unregister 和 list 行为继续保留。禁用 provider 时，若仍有启用中的 dependent，MUST 拒绝。
 
+
+### 13.1 SDK Alpha definition entry
+
+E09-01 提供 `src/sdk/index.ts` 作为 SDK Alpha 的公共定义入口，并从包根导出五个运行时 helper：
+
+    definePlugin<T extends PluginDefinition>(definition: T): DefinedPlugin<T>;
+    defineCapability<T extends CapabilityDefinitionInput>(
+      definition: T
+    ): T & CapabilityDefinition;
+    defineEventSchema<T extends EventSchemaDefinition>(definition: T): T;
+    defineAgentProvider<T extends AgentProvider>(provider: T): T;
+    defineJobHandler<T extends JobHandler>(handler: T): T;
+
+这些 helper 只保留字面量类型并返回原对象，不执行注册、启动、schema 校验、Job 重试或生命周期调度。对应职责仍分别属于 Plugin Host、Runtime、Event Schema Registry、AgentRegistry 与 Durable Job Runtime。
+
+SDK 声明面只允许依赖以下公共契约：
+
+- `protocol/capability`；
+- `protocol/combat-commands`（公开 `combat.resolve` definition、schema、validator 与类型）；
+- `protocol/command`（只导出 Command 与 ProposedEvent/Mutation/Job 候选类型）；
+- `platform/plugin-manifest`；
+- `platform/plugin-context`；
+- `agent/provider`。
+
+它 MUST NOT 导出或引用 Cordis、Pi、SQLite、HTTP API、具体 repository、内置 system/feature plugin 或其他私有实现。模块边界检查与编译后声明测试共同锁定该约束。
+
+`EventSchemaDefinition` 在 Alpha 阶段只包含 `type`、正整数语义的 `schemaVersion` 与实现无关的 `payloadSchema`；具体 schema registry 和提交前校验仍是后续 Runtime 工作。`JobHandler` 声明 `kind`、`payloadVersion`、可选 `payloadSchema` 与 `handle(job)`；队列拥有 complete、retry、defer 和租约状态，不把这些写权交给 handler。
+
+兼容性：该入口是增量能力。Plugin v1 读取、Cordis v2 adapter、现有 AgentProvider 的 `supports/run` 行为及 Runtime/Persistence API 均保持不变；E09-01 不迁移现有插件，也不改变存档、事件或 Job 的持久化形状。E09-02 的 `createTestRuntime` 将消费这些定义。
+
+
+### 13.2 SDK test runtime
+
+E09-02 提供异步工厂：
+
+    createTestRuntime(options?: CreateTestRuntimeOptions): Promise<TestRuntime>;
+
+`options.plugins` 接受 SDK `PluginDefinition`、测试配置与 disabled 状态；`options.capabilities` 接受由测试提供的纯对象 capability implementation，可用于替代 Command、EventStore、SnapshotStore、JobStore 等 E02/E04 ports，而不加载具体 adapter。
+
+测试上下文在 E03 的 `pluginId/effect` 兼容面上增加：
+
+- `capabilities.get/has/provide`；
+- `config`；
+- `lifecycle.effect`；
+- 只记录到内存的 `logger`。
+
+启动前 harness MUST 校验 manifest 身份、重复插件、重复 provider、缺失 requirement、版本不兼容、system scope 越权和依赖环。插件 MUST 按 capability 依赖拓扑执行 setup，并实际注册 manifest 声明的每个 provider。setup 或异步 effect 初始化失败时，已注册 capability 与 effect MUST 反向回滚；正常 dispose 也 MUST 按插件与 effect 的逆序执行且保持幂等。
+
+`TestRuntime` 只提供 capability 查询、已加载插件清单、capability 描述、日志快照与 dispose。它不会：
+
+- 创建 HTTP server；
+- 创建 Cordis Context；
+- 打开 SQLite 或其他数据库；
+- 把测试结果伪装成已提交 `GameEvent`；
+- 替代生产 Plugin Host、Kernel 权威或持久化事务。
+
+兼容性：`createTestRuntime` 是新增测试工具。生产 Cordis v1/v2 装配、Runtime、SQLite adapters、现有存档与事件形状不变。
+
+### 13.3 simple-greeting reference plugin
+
+E09-03 在 `examples/plugins/simple-greeting` 提供首个只依赖 `agent-game-runtime/sdk` 子路径的参考插件。它声明：
+
+- `example.greeting` public capability；
+- `example.greeting.send` command；
+- `example.greeting.sent` event schema 与 `example.greeting` 事件命名空间所有权。
+
+示例通过 `createTestRuntime` 注入配置、加载插件、解析 capability，并把一条合法 Command 转为 `CommandResult.events` 中的 `ProposedEvent`。空目标或错误 command type 返回 rejection，不产生候选事件。
+
+`ProposedEvent` 不是已提交 `GameEvent`。插件不得自行分配 event ID、sequence、state revision 或写入 EventStore；schema 校验、规则校验、原子提交与最终事件信封仍由 Runtime/Kernel 权威负责。
+
+包元数据只公开 `agent-game-runtime/sdk` 子路径；示例独立编译，防止借助 `src` 相对路径穿透私有实现。
+
+### 13.4 simple-combat reference plugin
+
+E09-04 在 `examples/plugins/simple-combat` 提供只依赖 `agent-game-runtime/sdk` 的可移植 `combat.resolve` provider。SDK 子路径公开官方 capability definition、command schema、类型与 `isCombatResolveCommand` validator，示例无需复制协议或导入内置插件。
+
+参考实现确定性处理 `command`、`delegate` 和 `quick_resolve` 三种参与方式，分别提出 `combat.action.resolved`、`combat.control.delegated` 与 `combat.battle.quick_resolved` 事件。`attackDamage` 只影响候选事件 payload；插件不读取或直接改写 Runtime battle state。
+
+E09-04 的局部 provider conformance 验证：manifest 只提供一个 `combat.resolve`、合法命令产生 owner namespace 下的候选事件、非法命令稳定拒绝、候选事件不含 id/sequence/stateRevision，并且替代 provider 可在不修改测试宿主的情况下通过同一契约。完整 manifest/protocol/lifecycle/cleanup conformance suite 仍属于 E09-07。
+
+现有 `feature.simple-combat` Cordis/Runtime 兼容 provider 保持不变；项目外示例不调用 `world.commandGateway`，最终 schema 校验、battle state mutation 与原子提交仍由生产 Runtime/Kernel 权威负责。
+
+### 13.5 rule-agent reference provider
+
+E09-05 在 `examples/providers/rule-agent` 提供只依赖 `agent-game-runtime/sdk` 的确定性 AgentProvider factory 与默认实例。SDK 同步公开当前稳定的 `AgentProviderObservation`、`AgentProviderAction` 和 `AgentProviderCharacterState` 兼容类型，示例无需导入 `core/contracts` 或任何内置 Agent 实现。
+
+provider 只按 `agentProfile`、可选 `providerHint` 和 required tags 选择，不硬编码 character ID。`run` 仅读取 recipient-specific Observation 的公开字段，使用 provider ID 与 observation ID 生成稳定 action ID，并返回发言与空 requests；它不读取环境变量、不调用网络或模型 SDK，也不申请世界写入。
+
+E09-05 测试证明无模型凭据即可完成确定性参考回合、alert/combat 可见输入触发固定规则，以及不同角色可通过相同声明式 binding 选择 provider。当前 `supports/run` 和 LegacyObservation/LegacyAgentAction 形状保持 v0.2 兼容；目标 v0.3 `canHandle` 与结构化 AgentAction 的迁移不得由参考示例提前伪装完成。
+
+### 13.6 Plugin Developer Quickstart
+
+E09-06 提供 `docs/sdk/quickstart.md` 作为 SDK Alpha 的项目内开发入口，并增加 `npm.cmd run test:examples` 稳定命令。该命令从干净源码顺序构建主 SDK、独立编译 examples，并运行 simple-greeting、simple-combat 与 rule-agent 的全部测试。
+
+Quickstart 覆盖环境准备、SDK-only import 边界、三个参考实现的职责、可复制的 Echo 插件与测试、ProposedEvent/Runtime 权威、lifecycle cleanup、AgentProvider 兼容形状、提交前检查和常见故障。文档命令与链接路径必须在 E09-06 验收中实际执行，而不是只做文本审阅。
+
+该指南只承诺当前 private package 的仓库内受信任开发流程；npm 发布、独立包安装与生产部署说明必须等待公共边界冻结和 packages/sdk 拆分。
+
+### 13.7 SDK conformance suite
+
+E09-07 从 `agent-game-runtime/sdk` 公开：
+
+    runPluginConformance(options): Promise<SdkConformanceReport>;
+    runAgentProviderConformance(options): Promise<SdkConformanceReport>;
+
+Plugin conformance 逐项检查 manifest JSON 可序列化、identity/version/type、capability requirement/provider 重复、scope、event ownership、job ownership 和 permission；通过 `createTestRuntime` 验证 setup、调用方 protocol probes、双重 dispose、cleanup/rollback 与关闭后不可访问。无效 manifest 在 setup 前停止，不执行插件代码；probe 失败仍必须继续清理。
+
+AgentProvider conformance 检查 provider identity、binding match/reject、Action 对 Observation 的 session/actor/observation 关联、JSON 序列化、确定性和调用方 action probe。它保留当前 v0.2-compatible `supports/run` 形状，不声称完成目标 v0.3 Agent API 迁移。
+
+`npm.cmd run test:conformance` 是专用入口：SDK 夹具验证成功、无效 manifest、setup rollback、protocol failure 和 Agent 行为；examples 夹具验证 simple-greeting、simple-combat 与 rule-agent 均通过公共包子路径。conformance runner 只生成测试报告，不授予生产提交权或插件隔离能力。
+
 ## 14. Plugin Host
 
 PluginManager 管理已加载 definition；PluginHost 负责发现和加载 package。二者 MUST 分离。
