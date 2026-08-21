@@ -35,8 +35,12 @@ export function buildPlayerVisibleState(state: GameState, playerId: string): Pla
     battle: state.battle ? {
       id: state.battle.id, status: state.battle.status, turn: state.battle.turn,
       objective: state.battle.objective, outcome: state.battle.outcome,
-      allies: Object.values(state.battle.allies).map((combatant) => structuredClone(combatant)),
-      enemies: Object.values(state.battle.enemies).map((combatant) => structuredClone(combatant)),
+      allies: Object.values(state.battle.allies).map(projectCombatant),
+      enemies: Object.values(state.battle.enemies).map(projectCombatant),
     } : undefined,
   };
+}
+
+function projectCombatant({ id, hp, maxHp, states }: BattleCombatant): BattleCombatant {
+  return { id, hp, maxHp, states: [...states] };
 }
