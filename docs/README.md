@@ -27,6 +27,7 @@ API 规范中的 Target 和路线图中的待办项均不表示当前代码已�
 | 文档 | 用途 |
 | --- | --- |
 | [当前实现状态](current-status.md) | MVP 垂直切片的事实快照 |
+| [v0.3.0 候选发布审计](development/V0.3.0_RELEASE_CANDIDATE_AUDIT.md) | DoD/M0.3.4 逐项证据、发布阻塞与下一 Gate |
 | [项目结构](project-structure.md) | 当前目录和模块导航 |
 | [模块治理](module-governance.md) | 新代码归属和依赖方向 |
 | [性能预算](performance-budget.md) | 热路径、冷路径和资源预算 |
@@ -41,6 +42,7 @@ API 规范中的 Target 和路线图中的待办项均不表示当前代码已�
 | [核心数据契约 v0.2](contracts.md) | 当前消息与事件示例 |
 | [Runtime 规则](runtime-rules.md) | 权威状态、校验与裁决规则 |
 | [插件协议 V1](plugin-protocol-v1.md) | 当前插件能力、组合和写入边界 |
+| [Plugin Developer Quickstart](sdk/quickstart.md) | SDK Alpha 示例、首个插件和本地验收流程 |
 | [持久化基础](persistence-foundation.md) | 召回、写入、事务和任务底层契约 |
 | [游戏时间](game-time.md) | GameMoment 与时间推进规则 |
 | [玩家输入管线](player-input-pipeline.md) | Raw input 到 Runtime action 的边界 |

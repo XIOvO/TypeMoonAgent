@@ -327,6 +327,8 @@ E08 从 v0.3 第一天开始，不在最后补做。
 
 2026-08-20 状态：E08-07 已完成。Pi 与 Rule provider 使用同一 `npc` binding 和 Runtime 装配分别运行，证明 agent provider 可在不改变 Runtime 的前提下替换。
 
+2026-08-20 状态：E08-08 已完成。trace 与 player-visible projection redaction tests 注入 hidden CIF/CoT 哨兵并验证输出不含秘密内容；战斗单位投影改为显式公开字段映射，不再深拷贝运行时附加字段。
+
 ## 12. E09 — SDK 与参考插件
 
 目标：证明架构可被项目外开发者使用，而不只是内部目录更整齐。
@@ -342,6 +344,22 @@ E08 从 v0.3 第一天开始，不在最后补做。
 | E09-07 | SDK conformance suite | compatibility tests | 全部 | manifest/protocol/lifecycle/cleanup 通过 |
 
 SDK 第一阶段可位于 src/sdk，达到独立发行条件后再迁移 packages/sdk。目录移动不得先于公共边界稳定。
+
+
+2026-08-21 状态：E09-01 已完成。新增 `src/sdk/index.ts` SDK Alpha 公共入口与 `definePlugin`、`defineCapability`、`defineEventSchema`、`defineAgentProvider`、`defineJobHandler` 五个零副作用定义 helper；包根只补充这五个值导出。SDK 模块与编译后声明测试共同禁止 Cordis、Pi、SQLite、HTTP、具体 repository 和内置插件实现穿透，现有 Plugin v1、Cordis v2 adapter、AgentProvider 与持久化形状保持兼容。
+
+
+2026-08-21 状态：E09-02 已完成。新增异步 `createTestRuntime` 内存测试容器：可用普通对象注入 E02/E04 风格 capability ports，按依赖拓扑执行插件 setup，校验 missing/duplicate/version/scope/cycle，并在失败或 dispose 时逆序清理 effect 与 provider。它不创建 HTTP server、Cordis Context、SQLite 连接或已提交世界事件。
+
+2026-08-21 状态：E09-03 已完成。新增 `examples/plugins/simple-greeting` 参考插件与独立 examples 编译入口；插件只从 `agent-game-runtime/sdk` 导入公共定义、测试 Runtime 和 Command/ProposedEvent 类型，通过 public capability 完成一条 command/候选 event 闭环。最终事件提交权仍保留在 Runtime/Kernel。
+
+2026-08-21 状态：E09-04 已完成。新增 `examples/plugins/simple-combat` 纯 SDK 参考 provider，复用官方 `combat.resolve` definition/schema/validator，确定性覆盖 command、delegate 与 quick_resolve，并只产生 owner namespace 下的候选事件。局部 conformance 同时验证非法命令拒绝、未伪造提交元数据和替代 provider 零宿主改动；完整 SDK conformance suite 仍留在 E09-07。
+
+2026-08-21 状态：E09-05 已完成。新增 `examples/providers/rule-agent` 纯 SDK、无凭据参考 provider；按 agentProfile/providerHint/tags 声明式选择，基于 recipient-specific Observation 确定性生成发言与空 requests，不读取环境变量、网络或模型 SDK。SDK 补充导出当前兼容 Observation/Action/CharacterState 类型，并明确 v0.3 Agent API 迁移仍属后续边界工作。
+
+2026-08-21 状态：E09-06 已完成。新增 `docs/sdk/quickstart.md` 与 `test:examples` 稳定入口，覆盖依赖安装、三个参考实现、SDK-only import、可复制 Echo 插件、候选事件权威、lifecycle、AgentProvider 兼容形状和故障排查。验收已按文档原样完成主 SDK 构建、examples 独立编译、当前 11 条示例测试及链接路径检查；当前 private package 未被描述为已发布 npm 包。
+
+2026-08-21 状态：E09-07 已完成，E09 全部收尾。SDK 新增 `runPluginConformance` 与 `runAgentProviderConformance` 逐项报告器，覆盖 manifest JSON/结构、capability/scope/ownership/permission、protocol probes、setup、双重 dispose、cleanup/rollback、关闭态，以及 Agent binding/action/serialization/determinism。`test:conformance` 的 8 条专用测试包含三个参考实现和成功/失败夹具；`test:examples` 当前共 11 条。报告器不授予 Runtime 提交权、进程隔离或 npm 发布状态。
 
 ## 13. 并行 Workstream
 
@@ -582,9 +600,12 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-07 已完成。下一步进入 E08-08：
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-08、E09-01 至 E09-07 已完成，E09 全部完成。2026-08-21 已完成 [v0.3.0 候选发布审计](V0.3.0_RELEASE_CANDIDATE_AUDIT.md)：22 项 DoD 中 20 项通过、2 项条件通过，当前候选状态为 Hold。
 
-1. 添加 trace 与 projection redaction test；
-2. 确保 hidden CIF/CoT 不进入 trace 或 UI。
+2026-08-21 状态：**RC-01 Release Gate Automation 本地实现完成，等待首个托管 CI 运行验收**。
+
+1. `verify:release` 使用跨平台 npm 子命令串联完整测试、module boundary 与 SDK conformance；
+2. GitHub Actions 在 push、pull request 和手动触发时执行同一入口；Linux runner 可实际执行 symlink 安全用例；
+3. 本地门禁通过后仍需一个远端绿色 revision 才能关闭 architecture CI Gate。随后进入 **RC-02 Migration Operations Validation**。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。
