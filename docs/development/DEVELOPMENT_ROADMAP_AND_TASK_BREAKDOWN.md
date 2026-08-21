@@ -600,12 +600,14 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-08、E09-01 至 E09-07 已完成，E09 全部完成。2026-08-21 已完成 [v0.3.0 候选发布审计](V0.3.0_RELEASE_CANDIDATE_AUDIT.md)：22 项 DoD 已全部通过，候选仍因 migration 运维门槛与版本身份保持 Hold。
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-08、E09-01 至 E09-07 已完成，E09 全部完成。[v0.3.0 候选发布审计](V0.3.0_RELEASE_CANDIDATE_AUDIT.md) 的 22 项 DoD 与 RC-01 至 RC-03 门槛现已全部关闭，`v0.3.0-rc.1` 候选成立。
 
 2026-08-21 状态：**RC-01 Release Gate Automation 已完成**。[GitHub Actions run 32484093473](https://github.com/XIOvO/TypeMoonAgent/actions/runs/32484093473) 在 Linux 上完整通过 199 条核心测试声明、11 条 examples、8 条 conformance、246 文件模块边界和 symlink 安全用例。
 
 2026-08-22 状态：**RC-02 Migration Operations Validation 已完成**。新增内部 SQLite migration operations 与 4 项真实临时数据库验收，覆盖 dry-run 零写入、checksum/future-version preflight、迁移前备份、逐项事务、失败停止与保留备份、显式 restore 默认不覆盖；完整本地 Release Gate 通过 203/204 核心测试（1 项环境跳过）、11/11 examples、8/8 conformance 和 248 文件模块边界，[GitHub Actions run 32500645665](https://github.com/XIOvO/TypeMoonAgent/actions/runs/32500645665) 亦全部绿色。
 
-下一实现项为 **RC-03 Candidate Identity & Immutable Snapshot**：建立明确的 `0.3.0-rc` 版本身份、可复现 revision 和对应托管门禁证据，再重新作出候选发布决策。
+2026-08-22 状态：**RC-03 Candidate Identity & Immutable Snapshot 已完成**。package 与 lockfile 已统一为 `0.3.0-rc.1`；候选 revision `c057c8591dbbef5fa580d72767ae588f34d6f5cb` 的[分支门禁](https://github.com/XIOvO/TypeMoonAgent/actions/runs/32501997767)通过后，annotated tag `v0.3.0-rc.1` 指向该 revision，且[标签门禁](https://github.com/XIOvO/TypeMoonAgent/actions/runs/32502093232)亦通过。同一工作树两次打包 SHA-256 一致；package 保持 private，未执行 npm publish 或创建 GitHub Release。
+
+下一步进入 **候选验收与问题收敛**；如无阻塞性回归，再单独决定是否发布 `v0.3.0` stable。独立 npm SDK 打包仍需 `files` allowlist、构建产物布局与安装验收，不属于本候选身份门槛。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。
