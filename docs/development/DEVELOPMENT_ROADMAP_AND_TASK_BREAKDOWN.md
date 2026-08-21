@@ -604,6 +604,8 @@ E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-
 
 2026-08-21 状态：**RC-01 Release Gate Automation 已完成**。[GitHub Actions run 32484093473](https://github.com/XIOvO/TypeMoonAgent/actions/runs/32484093473) 在 Linux 上完整通过 199 条核心测试声明、11 条 examples、8 条 conformance、246 文件模块边界和 symlink 安全用例。
 
-下一实现项为 **RC-02 Migration Operations Validation**：实现并验证 migration dry-run、迁移前备份、失败保留备份和显式 restore，且不扩大持久化公开 API。
+2026-08-21 状态：**RC-02 Migration Operations Validation 本地完成**。新增内部 SQLite migration operations 与 4 项真实临时数据库验收，覆盖 dry-run 零写入、checksum/future-version preflight、迁移前备份、逐项事务、失败停止与保留备份、显式 restore 默认不覆盖；完整本地 Release Gate 通过 203/204 核心测试（1 项环境跳过）、11/11 examples、8/8 conformance 和 248 文件模块边界。
+
+下一实现项为 **RC-03 Candidate Identity & Immutable Snapshot**：建立明确的 `0.3.0-rc` 版本身份、可复现 revision 和对应托管门禁证据，再重新作出候选发布决策。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。

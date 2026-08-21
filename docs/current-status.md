@@ -33,7 +33,7 @@ Atlas 原始 Script → lore.sqlite（切片 + FTS）→ CIF 初始化证据包
 | Runtime | 对话、移动、观察、等待；已发布角色的受控引入；事件可见性；回合事务；回滚 | 自由行动 Resolver、物品与战斗规则尚未实现 |
 | Pi | 角色回合 Pi 适配器；仅开放 `submit_game_action` | 正式模型运行需用户配置 provider/model/key |
 | CIF | 身份、证据、认识、解释模型、即时状态；最小 Context Builder；L1 场景记忆整合与独立 L2 提示词规范 | L2 Worker、信念更新策略与更多触发类型仍待实现 |
-| 持久化 | SQLite 世界快照、客观事件、CIF、幂等记录与事务；记忆任务的领取、租约回收与退避重试 | migration 框架、通用 Job / Outbox 与更多 Worker 类型待补 |
+| 持久化 | SQLite 世界快照、客观事件、CIF、幂等记录与事务；Migration Registry/Runner；只读 dry-run、迁移前备份、逐项事务、失败保留备份与显式 restore；记忆任务的领取、租约回收与退避重试 | migration operations 当前为内部运维边界；通用 Outbox 与更多 Worker 类型待补 |
 | 前端 | 玩家可见状态、SSE 事件流、统一输入；`NarrativeBeat` 协议、确定性 Renderer、播放队列、逐字显示、文本回看与浏览器本地播放恢复 | 尚无地图/档案/角色面板/存读档等功能覆层，且未有最终 Galgame 视觉呈现 |
 | 原作资料 | 冬木主线 31 Script → 55 切片；独立 `lore.sqlite` + FTS5 | 未做向量化；仅导入冬木；说话者 ID 映射待补 |
 | CIF 初始化 | 时间线过滤的证据包、Pi 低频草案、引用校验、待审核草案、审核后发布、最小审核面板 | 完整审阅编辑与真实开局创建流程仍待实现 |
