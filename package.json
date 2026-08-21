@@ -1,9 +1,9 @@
 {
   "name": "agent-game-runtime",
-  "version": "0.1.0",
+  "version": "0.3.0-rc.1",
   "private": true,
   "type": "module",
-  "description": "Event-sourced game runtime with Pi Agent as the only agent integration layer.",
+  "description": "Event-sourced game runtime with configurable Pi and rule-based Agent providers.",
   "exports": {
     "./sdk": {
       "types": "./dist/sdk/index.d.ts",
