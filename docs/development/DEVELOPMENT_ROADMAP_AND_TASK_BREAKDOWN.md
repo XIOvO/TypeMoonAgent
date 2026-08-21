@@ -600,12 +600,10 @@ v1.0 验收：
 
 ## 21. 当前下一步
 
-E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-08、E09-01 至 E09-07 已完成，E09 全部完成。2026-08-21 已完成 [v0.3.0 候选发布审计](V0.3.0_RELEASE_CANDIDATE_AUDIT.md)：22 项 DoD 中 20 项通过、2 项条件通过，当前候选状态为 Hold。
+E06 已完成，E07-I1 至 E07-I3、E07-S1 至 E07-S3、E07-C1 至 E07-C4、E07-N1 至 E07-N3、E08-01 至 E08-08、E09-01 至 E09-07 已完成，E09 全部完成。2026-08-21 已完成 [v0.3.0 候选发布审计](V0.3.0_RELEASE_CANDIDATE_AUDIT.md)：22 项 DoD 已全部通过，候选仍因 migration 运维门槛与版本身份保持 Hold。
 
-2026-08-21 状态：**RC-01 Release Gate Automation 本地实现完成，等待首个托管 CI 运行验收**。
+2026-08-21 状态：**RC-01 Release Gate Automation 已完成**。[GitHub Actions run 32484093473](https://github.com/XIOvO/TypeMoonAgent/actions/runs/32484093473) 在 Linux 上完整通过 199 条核心测试声明、11 条 examples、8 条 conformance、246 文件模块边界和 symlink 安全用例。
 
-1. `verify:release` 使用跨平台 npm 子命令串联完整测试、module boundary 与 SDK conformance；
-2. GitHub Actions 在 push、pull request 和手动触发时执行同一入口；Linux runner 可实际执行 symlink 安全用例；
-3. 本地门禁通过后仍需一个远端绿色 revision 才能关闭 architecture CI Gate。随后进入 **RC-02 Migration Operations Validation**。
+下一实现项为 **RC-02 Migration Operations Validation**：实现并验证 migration dry-run、迁移前备份、失败保留备份和显式 restore，且不扩大持久化公开 API。
 
 E07 仍采用兼容 adapter 迁移；在领域回归与 swap test 完成前，不删除现有 Runtime 方法。
